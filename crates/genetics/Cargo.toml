@@ -1,0 +1,9 @@
+[package]
+name = "ecosym-genetics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ecosym-core.workspace = true
+serde.workspace = true

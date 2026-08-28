@@ -1,0 +1,16 @@
+[package]
+name = "ecosym-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ecosym"
+path = "src/main.rs"
+
+[dependencies]
+ecosym-core.workspace = true
+ecosym-simulation.workspace = true
+ecosym-genetics.workspace = true
+ecosym-replay.workspace = true
+clap = { version = "4", features = ["derive"] }

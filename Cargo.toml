@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/cli",
+    "apps/server",
+    "crates/core",
+    "crates/genetics",
+    "crates/world",
+    "crates/ecology",
+    "crates/simulation",
+    "crates/replay",
+    "crates/gpu",
+]
+# so `cargo run --release -- --seed ...` at the root hits the CLI
+default-members = ["apps/cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+ecosym-core = { path = "crates/core" }
+ecosym-genetics = { path = "crates/genetics" }
+ecosym-world = { path = "crates/world" }
+ecosym-ecology = { path = "crates/ecology" }
+ecosym-simulation = { path = "crates/simulation" }
+ecosym-replay = { path = "crates/replay" }
+ecosym-gpu = { path = "crates/gpu" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

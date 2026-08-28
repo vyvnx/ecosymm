@@ -1,0 +1,12 @@
+{
+  "name": "ecosym",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/web"],
+  "scripts": {
+    "dev": "npm run dev -w @ecosym/web",
+    "build": "npm run build -w @ecosym/web",
+    "server": "cargo run --release -p ecosym-server",
+    "sim": "cargo run --release --"
+  }
+}

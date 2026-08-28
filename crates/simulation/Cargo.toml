@@ -1,0 +1,12 @@
+[package]
+name = "ecosym-simulation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ecosym-core.workspace = true
+ecosym-genetics.workspace = true
+ecosym-ecology.workspace = true
+ecosym-world.workspace = true
+serde.workspace = true
