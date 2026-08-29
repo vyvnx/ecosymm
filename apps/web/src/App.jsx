@@ -3,7 +3,7 @@ import AccountPanel from "./AccountPanel.jsx";
 import BetPanel from "./BetPanel.jsx";
 import WorldView, { createController } from "./WorldView.jsx";
 import { api } from "./game/api.js";
-import { formatCoins } from "./game/coins.js";
+import { formatCoins, settlementLine } from "./game/coins.js";
 import { fromAnotherRun, initialMarket, reduceMarket } from "./game/market.js";
 import { decode } from "./render/protocol.js";
 import { speciesCss } from "./render/WorldRenderer.js";
@@ -27,6 +27,9 @@ export default function App() {
   const [game, setGame] = useState(initialMarket);
   const [account, setAccount] = useState(null);
   const [bet, setBet] = useState(null);
+  // the market as it settled, kept beside the run's obituary so both survive
+  // into the next betting window instead of vanishing when it opens
+  const [result, setResult] = useState(null);
   // bumped whenever the socket has to start again: a bootstrap that did not
   // add up, or signing in and out, which is what re-authenticates it
   const [socketKey, setSocketKey] = useState(0);
@@ -67,6 +70,9 @@ export default function App() {
     try {
       const market = await api.market();
       setBet(market.bet ?? null);
+      if (market.phase === "settled" || market.phase === "void") {
+        setResult({ market, bet: market.bet ?? null });
+      }
       setGame((g) => reduceMarket(g, { type: "market_fetched", market }));
     } catch {
       // the socket carries the market too; a failed fetch is not fatal
@@ -150,6 +156,7 @@ export default function App() {
           runId.current = null;
           controller.current.reset();
           setDone(null);
+          setResult(null);
           setFailure(null);
           setStart(null);
           setStatus("synchronising");
@@ -184,6 +191,7 @@ export default function App() {
           runId.current = msg.run_id ?? null;
           controller.current.reset();
           setDone(null);
+          setResult(null);
           setStart(msg);
         }
         if (msg.type === "epoch") report.current = msg.report;
@@ -323,6 +331,20 @@ export default function App() {
               {winnerLine(done.outcome)}
             </p>
 
+            {/* what the market did to *your* coins. said here, once, beside
+                the run it came out of */}
+            {result && settlementLine(result.market, result.bet) && (
+              <p
+                className={`mt-1 ${
+                  result.bet?.outcome === result.market.winning_outcome
+                    ? "text-emerald-400"
+                    : "text-neutral-500"
+                }`}
+              >
+                {settlementLine(result.market, result.bet)}
+              </p>
+            )}
+
             {/* same order as everywhere else, so a colour means one species */}
             <div className="mt-3 space-y-0.5 tabular-nums">
               {done.outcome.species.map((s, i) => (
@@ -342,10 +364,10 @@ export default function App() {
               ))}
             </div>
 
-            {game.market?.gross_pool > 0 && (
+            {result?.market.gross_pool > 0 && (
               <p className="mt-3 text-neutral-600">
-                {formatCoins(game.market.gross_pool)} wagered ·{" "}
-                {formatCoins(game.market.burn)} burned
+                {formatCoins(result.market.gross_pool)} wagered ·{" "}
+                {formatCoins(result.market.burn)} burned
               </p>
             )}
 

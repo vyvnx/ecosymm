@@ -65,20 +65,19 @@ export function outcomeLabels(species) {
   ]
 }
 
-/** how a settled market reads for one player */
+/**
+ * what a settled market did to *your* coins, or nothing.
+ *
+ * who took the market is the run's own result and is said once, where the run
+ * is reported. this line only ever adds what the reader cannot see there.
+ */
 export function settlementLine(market, bet) {
-  if (!market || (market.phase !== 'settled' && market.phase !== 'void')) return null
-  if (market.phase === 'void') {
-    return bet
-      ? `void - everything died. ${formatCoins(bet.stake)} refunded.`
-      : 'void - everything died. every stake refunded.'
+  if (!market || !bet) return null
+  if (market.phase === 'void') return `void - your ${formatCoins(bet.stake)} came back`
+  if (market.phase !== 'settled') return null
+  if (bet.outcome === market.winning_outcome) {
+    return `you won ${formatCoins(bet.payout ?? 0)} on a ${formatCoins(bet.stake)} stake`
   }
-  const won = bet && bet.outcome === market.winning_outcome
-  const name = outcomeLabels(market.species).find((o) => o.key === market.winning_outcome)
-  if (!bet) return `${name?.label ?? 'nobody'} took the market`
-  return won
-    ? `won - ${formatCoins(bet.payout ?? 0)} paid on a ${formatCoins(bet.stake)} stake`
-    : `lost - ${formatCoins(bet.stake)} on ${
-        outcomeLabels(market.species).find((o) => o.key === bet.outcome)?.label ?? bet.outcome
-      }`
+  const chose = outcomeLabels(market.species).find((o) => o.key === bet.outcome)
+  return `you lost ${formatCoins(bet.stake)} on ${chose?.label ?? bet.outcome}`
 }

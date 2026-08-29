@@ -8,7 +8,6 @@ import {
   parseStake,
   projection,
   secondsUntil,
-  settlementLine,
 } from './game/coins.js'
 import { canBet } from './game/market.js'
 
@@ -16,10 +15,11 @@ import { canBet } from './game/market.js'
  * the market, bottom centre. three outcomes, one amount, and a countdown that
  * is corrected onto the server's own deadline rather than kept locally.
  *
- * it is only large while it is useful. the moment the market locks, the
- * controls fold away and what is left is one line - phase, your bet, the pool
- * - because for the next sixty seconds the world is the thing to look at and
- * this panel is in front of it.
+ * it is only there while it is useful. at lock the controls fold into one line
+ * - phase, your bet, the pool - because the sixty seconds anyone came to watch
+ * should not be spent behind a form. once the market settles it leaves
+ * altogether: the run's own result card says what happened, and saying it
+ * twice in two places is worse than saying it once.
  *
  * nothing here is ever optimistic: coins move when the server says they have.
  */
@@ -36,7 +36,8 @@ export default function BetPanel({ market, account, bet, synced, connected, offs
     return () => clearInterval(id)
   }, [])
 
-  if (!market) return null
+  // a settled market has nothing left to do here. the result card has it.
+  if (!market || market.phase === 'settled' || market.phase === 'void') return null
 
   const corrected = now + offset
   const rules = market.rules
@@ -52,7 +53,6 @@ export default function BetPanel({ market, account, bet, synced, connected, offs
     : null
   const open = canBet({ market, account, synced, connected, submitting }, corrected)
   const outcomes = outcomeLabels(market.species)
-  const settled = settlementLine(market, bet)
   // the controls are worth their space only while a bet can still be placed
   const expanded = market.phase === 'open'
   const mine = bet && outcomes.find((o) => o.key === bet.outcome)
@@ -92,8 +92,6 @@ export default function BetPanel({ market, account, bet, synced, connected, offs
           </span>
           <Caveat />
         </div>
-
-        {settled && <p className="mt-2 text-neutral-100">{settled}</p>}
 
         {/* the controls, folded away the moment they stop being useful */}
         <div

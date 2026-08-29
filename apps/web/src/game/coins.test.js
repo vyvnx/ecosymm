@@ -75,19 +75,22 @@ test('the three buttons keep the order the server sent species in', () => {
   )
 })
 
-test('a settled market reads differently depending on what you did', () => {
+test('a settlement is only ever reported as what it did to your own coins', () => {
   const species = [{ name: 'Species A' }, { name: 'Species B' }]
   const settled = { phase: 'settled', winning_outcome: 'species_a', species }
 
-  assert.match(
+  assert.equal(
     settlementLine(settled, { outcome: 'species_a', stake: 10, payout: 19 }),
-    /^won - 19 DC paid on a 10 DC stake$/,
+    'you won 19 DC on a 10 DC stake',
   )
-  assert.match(settlementLine(settled, { outcome: 'species_b', stake: 10, payout: 0 }), /^lost/)
-  assert.match(settlementLine(settled, null), /Species A took the market/)
-  assert.match(
-    settlementLine({ phase: 'void', species }, { stake: 10 }),
-    /void - everything died\. 10 DC refunded\./,
+  assert.equal(
+    settlementLine(settled, { outcome: 'species_b', stake: 10, payout: 0 }),
+    'you lost 10 DC on Species B',
   )
-  assert.equal(settlementLine({ phase: 'open', species }, null), null)
+  assert.equal(settlementLine({ phase: 'void', species }, { stake: 10 }), 'void - your 10 DC came back')
+
+  // who took the market belongs to the run's own result, said once there
+  assert.equal(settlementLine(settled, null), null)
+  assert.equal(settlementLine({ phase: 'void', species }, null), null)
+  assert.equal(settlementLine({ phase: 'open', species }, { stake: 10 }), null)
 })
