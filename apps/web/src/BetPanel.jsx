@@ -21,9 +21,22 @@ import { canBet } from './game/market.js'
  * altogether: the run's own result card says what happened, and saying it
  * twice in two places is worse than saying it once.
  *
+ * whether the controls are unfolded is App's call, not this panel's: one state
+ * machine owns every expansion on the page, so betting cannot open itself
+ * underneath a result card.
+ *
  * nothing here is ever optimistic: coins move when the server says they have.
  */
-export default function BetPanel({ market, account, bet, synced, connected, offset, onBet }) {
+export default function BetPanel({
+  market,
+  account,
+  bet,
+  synced,
+  connected,
+  offset,
+  expanded,
+  onBet,
+}) {
   const [amount, setAmount] = useState('10')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
@@ -53,8 +66,6 @@ export default function BetPanel({ market, account, bet, synced, connected, offs
     : null
   const open = canBet({ market, account, synced, connected, submitting }, corrected)
   const outcomes = outcomeLabels(market.species)
-  // the controls are worth their space only while a bet can still be placed
-  const expanded = market.phase === 'open'
   const mine = bet && outcomes.find((o) => o.key === bet.outcome)
 
   async function place(outcome) {
@@ -183,7 +194,7 @@ function Caveat() {
       <button
         type="button"
         aria-label="how the projected returns work"
-        className="grid h-4 w-4 place-items-center rounded-full border border-neutral-700 text-[9px] leading-none text-neutral-500 hover:border-neutral-500 hover:text-neutral-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500"
+        className="relative grid h-4 w-4 place-items-center rounded-full border border-neutral-700 text-[9px] leading-none text-neutral-500 after:absolute after:-inset-3.5 after:content-[''] hover:border-neutral-500 hover:text-neutral-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500 sm:after:hidden"
       >
         i
       </button>
