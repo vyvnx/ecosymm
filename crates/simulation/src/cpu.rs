@@ -8,7 +8,7 @@
 use crate::epoch::{EngineError, EpochEngine, EpochEvents, Tick};
 use crate::state::SimulationState;
 use ecosym_core::{derive_seed, hash_u64, Rng};
-use ecosym_ecology::{behavior, CellIndex, Conception};
+use ecosym_ecology::{behavior, CellIndex, Conception, MateSearch};
 
 /// a birth conceived during the visit pass and admitted afterwards. ids are
 /// minted at admission, so a birth the ceiling refuses never burns one.
@@ -30,6 +30,10 @@ pub struct CpuEngine {
     max_population: usize,
     /// scratch, reused every tick
     handles: Vec<(usize, usize)>,
+    /// each visited organism's reproductive pressure, aligned with `handles`.
+    /// buffered rather than acted on, so conception can wait for everybody to
+    /// have finished moving.
+    intent: Vec<f32>,
     /// who is standing where, as of the start of the current tick. derived
     /// state, so it belongs to the backend rather than to `SimulationState` -
     /// what it *means* is ecology's, in `CellIndex`.
@@ -46,6 +50,7 @@ impl CpuEngine {
             reproduction: Rng::new(derive_seed(seed, "reproduction")),
             max_population,
             handles: Vec::new(),
+            intent: Vec::new(),
             occupancy: CellIndex::default(),
         }
     }
@@ -80,7 +85,8 @@ impl CpuEngine {
         // observation the visit order cannot skew
         self.occupancy.rebuild(&state.species, &state.world);
 
-        let mut queued: Vec<Vec<QueuedBirth>> = vec![Vec::new(); state.species.len()];
+        self.intent.clear();
+        self.intent.resize(self.handles.len(), 0.0);
 
         for k in 0..self.handles.len() {
             let (s, i) = self.handles[k];
@@ -94,31 +100,50 @@ impl CpuEngine {
             let (next, act) =
                 behavior::live_one_tick(&current, s, world, &self.occupancy, &mut self.behavior);
             events.behavior[s].record(&act);
-
-            // 5. breed, and only ever inside this organism's own population.
-            // the policy's pressure is an input to the rule, never a bypass.
-            if let Some(conception) = behavior::conceive(
-                &next,
-                act.reproduction,
-                i,
-                species[s].population(),
-                &mut self.reproduction,
-            ) {
-                queued[s].push(QueuedBirth { parent: i, conception });
-            }
+            // the policy's reproductive pressure is buffered, not acted on. it
+            // is an input to the rule in pass two, never a bypass.
+            self.intent[k] = act.reproduction;
 
             if let Some(slot) = species[s].population_mut().get_mut(i) {
                 *slot = next;
             }
         }
 
-        // 6 + 7. append births, then remove the dead with stable retention
+        // 5. everybody has moved, so rebuild before anyone looks for a mate.
+        // one coherent snapshot for the whole conception pass: no breeder may
+        // see moved positions while another sees the old ones.
+        self.occupancy.rebuild(&state.species, &state.world);
+
+        // 6. resolve conceptions, in the same visit order the pass above used
+        let mut queued: Vec<Vec<QueuedBirth>> = vec![Vec::new(); state.species.len()];
+        for k in 0..self.handles.len() {
+            let (s, i) = self.handles[k];
+            let Some(parent) = state.species[s].population().get(i).copied() else {
+                continue;
+            };
+            if let Some(conception) = behavior::conceive(
+                &parent,
+                self.intent[k],
+                &MateSearch {
+                    species: s,
+                    breeder: i,
+                    population: state.species[s].population(),
+                    world: &state.world,
+                    index: &self.occupancy,
+                },
+                &mut self.reproduction,
+            ) {
+                queued[s].push(QueuedBirth { parent: i, conception });
+            }
+        }
+
+        // 7 + 8. append births, then remove the dead with stable retention
         self.admit_births(state, &queued, events);
         for (s, species) in state.species.iter_mut().enumerate() {
             events.deaths[s] += species.population_mut().retain_living();
         }
 
-        // 8. the world grows back
+        // 9. the world grows back
         state.world.regrow();
         state.time.tick = Tick(tick + 1);
     }

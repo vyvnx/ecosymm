@@ -102,17 +102,23 @@ impl std::error::Error for EngineError {}
 ///    inherited policy against **this organism's own** hidden state, move,
 ///    forage the shared field, pay upkeep, age. the returned organism carries
 ///    the advanced memory and is what must be stored back; a shared or
-///    per-thread scratch buffer forks the model;
-/// 5. apply [`ecosym_ecology::behavior::conceive`], passing the policy's own
-///    reproductive pressure - eligibility, a mate from the same population,
-///    recombination then birth-time mutation of genes and brain alike;
-/// 6. after the pass, admit conceptions with
+///    per-thread scratch buffer forks the model. **buffer** the policy's
+///    reproductive pressure rather than acting on it;
+/// 5. rebuild the index a second time, now that everybody has moved. every
+///    breeder in the tick must query this one snapshot: no breeder may see
+///    moved positions while another sees the old ones;
+/// 6. in the same visit order, apply
+///    [`ecosym_ecology::behavior::conceive`] with the buffered pressure -
+///    eligibility, a mate from within [`ecosym_ecology::behavior::MATE_REACH`]
+///    of where the parent now stands, recombination then birth-time mutation of
+///    genes and brain alike;
+/// 7. after the pass, admit conceptions with
 ///    [`ecosym_ecology::Conception::birth`], subject to the backend's own
 ///    population ceiling, applied fairly across species. a newborn's hidden
 ///    state is zero: weights are inherited, memory is not;
-/// 7. remove the dead with `Population::retain_living`, which is stable;
-/// 8. regrow the world; and
-/// 9. accumulate births, deaths and behavioural tallies per species.
+/// 8. remove the dead with `Population::retain_living`, which is stable;
+/// 9. regrow the world; and
+/// 10. accumulate births, deaths and behavioural tallies per species.
 ///
 /// A backend that cannot call Rust at all - a shader, a kernel - still has
 /// exactly one place to port each rule *from*, and `CpuEngine` is the reference

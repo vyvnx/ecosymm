@@ -1,11 +1,10 @@
 //! the organisms one species owns.
 
 use crate::{behavior, Organism};
-use ecosym_core::Rng;
 
-/// every organism in here belongs to the owning species. mate selection is a
-/// method on the population precisely so a caller cannot hand it the global
-/// organism list and breed across species by accident.
+/// every organism in here belongs to the owning species, which is why a mate
+/// lookup takes one of these rather than the global organism list: breeding
+/// across species is not something a caller can do by accident.
 #[derive(Clone, Debug, Default)]
 pub struct Population {
     organisms: Vec<Organism>,
@@ -34,22 +33,6 @@ impl Population {
 
     pub fn is_empty(&self) -> bool {
         self.organisms.is_empty()
-    }
-
-    /// a mate drawn from this population and no other, skipping `breeder`'s own
-    /// index whenever somebody else is available.
-    pub fn select_mate(&self, breeder: usize, rng: &mut Rng) -> Option<&Organism> {
-        match self.organisms.len() {
-            0 => None,
-            1 => self.organisms.first(),
-            n => {
-                let mut j = rng.below(n - 1);
-                if j >= breeder {
-                    j += 1;
-                }
-                self.organisms.get(j)
-            }
-        }
     }
 
     /// newborns are appended after a visit pass, never during it
@@ -83,24 +66,6 @@ mod tests {
                 })
                 .collect(),
         )
-    }
-
-    #[test]
-    fn mate_selection_never_leaves_the_population_and_skips_self() {
-        let p = population(6);
-        let mut rng = Rng::new(5);
-        for _ in 0..200 {
-            let mate = p.select_mate(2, &mut rng).unwrap();
-            assert_ne!(mate.id(), p.get(2).unwrap().id());
-            assert!(p.organisms().iter().any(|o| o.id() == mate.id()));
-        }
-    }
-
-    #[test]
-    fn a_lone_organism_can_only_mate_with_itself_and_an_empty_one_cannot() {
-        let mut rng = Rng::new(5);
-        assert!(population(1).select_mate(0, &mut rng).is_some());
-        assert!(population(0).select_mate(0, &mut rng).is_none());
     }
 
     #[test]

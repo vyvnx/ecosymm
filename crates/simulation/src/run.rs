@@ -445,7 +445,21 @@ mod tests {
         let twins = twin_blueprints();
         assert_eq!(twins[0].genes, twins[1].genes, "the twins are not physically identical");
 
-        let cfg = SimConfig { population_per_species: 300, epochs: 40, ..small() };
+        // a wider world and a longer epoch than the rest of the suite uses.
+        // mating is local now, so a founding colony has to be dense enough to
+        // still find itself after its own founders die of old age - and two
+        // identical species sharing one world halve each other's mate density,
+        // which makes this the strictest density test here. at 300 founders on
+        // 64x64 both twins go extinct in the trough and the comparison this
+        // test exists for has nothing left to compare.
+        let cfg = SimConfig {
+            population_per_species: 500,
+            epochs: 40,
+            width: 96,
+            height: 96,
+            ticks_per_epoch: 20,
+            ..small()
+        };
         let mut sim = Simulation::cpu_with(cfg.clone(), &twins);
         assert_ne!(
             sim.state.species[0].founder_brain(),

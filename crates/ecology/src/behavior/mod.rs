@@ -127,6 +127,99 @@ pub struct Conception {
     pub energy: f32,
 }
 
+/// how many tiles out an organism can find a mate, in every direction.
+///
+/// mating is contact, so this is the smallest reach that keeps an isolated
+/// population viable - which is the rule ADR 0008 asks for, and it is measured
+/// rather than picked. at reach 1 a founding population at one organism per
+/// nine tiles cannot find each other reliably and dies before selection starts;
+/// see `experiments/2026-08-29-mating-is-local`.
+pub const MATE_REACH: i32 = 4;
+
+/// the wrapped square an organism can breed inside, centre included: standing
+/// on the same tile is the closest two organisms in this model can get
+const MATE_CELLS: usize = (2 * MATE_REACH as usize + 1).pow(2);
+
+/// where a breeder is allowed to look, gathered so the two indices cannot be
+/// swapped at a call site: `species` says which population the crowd snapshot
+/// is keyed by, `breeder` is the parent's own slot inside it.
+pub struct MateSearch<'a> {
+    pub species: usize,
+    pub breeder: usize,
+    pub population: &'a Population,
+    pub world: &'a World,
+    /// the post-movement crowd, shared by every breeder in the tick
+    pub index: &'a CellIndex,
+}
+
+/// a mate from the neighbourhood, by count, rank and index.
+///
+/// count the eligible in each stencil cell, draw one rank across the total,
+/// then walk the fixed cell order to whoever holds it. one rng draw, no
+/// candidate vector, and no path that degrades into scanning the population
+/// when a thousand organisms pile onto one tile.
+///
+/// eligibility is: this species, alive in the post-movement snapshot, and not
+/// the breeder. the breeder is subtracted before the draw and skipped when the
+/// rank is located, so a lone organism cannot fertilise itself - **isolation is
+/// now a way to fail**, which is the whole point of making mating spatial.
+///
+/// ponytail: the eligible are filtered out of the shared occupancy index rather
+/// than sorted into an index of their own. a second `(species, cell)` counting
+/// sort per tick would cost a full pass over the population to save reading a
+/// few short slices, and only breeders ever pay for this one - widening the
+/// reach from 1 to 4 cost 0.4% of wall clock. build the second index if a
+/// filter ever gets more expensive than a liveness check.
+fn find_mate<'a>(
+    parent: &Organism,
+    search: &MateSearch<'a>,
+    rng: &mut Rng,
+) -> Option<&'a Organism> {
+    let MateSearch { species, breeder, population, world, index } = *search;
+    let eligible =
+        |m: u32| m as usize != breeder && population.get(m as usize).is_some_and(|o| !is_dead(o));
+
+    // row-major over the wrapped square, which fixes the order every sum and
+    // every rank below is taken in
+    let mut cells = [0usize; MATE_CELLS];
+    let mut counts = [0u32; MATE_CELLS];
+    let mut total = 0u32;
+    for k in 0..MATE_CELLS {
+        let (dx, dy) = (
+            (k % (2 * MATE_REACH as usize + 1)) as i32 - MATE_REACH,
+            (k / (2 * MATE_REACH as usize + 1)) as i32 - MATE_REACH,
+        );
+        let cell = world.idx(parent.x + dx as f32, parent.y + dy as f32);
+        cells[k] = cell;
+        // a world narrower than the reach wraps onto itself, and the same cell
+        // counted twice would weight its members by geometry
+        if cells[..k].contains(&cell) {
+            continue;
+        }
+        counts[k] =
+            index.members(species, cell).iter().copied().filter(|m| eligible(*m)).count() as u32;
+        total += counts[k];
+    }
+    if total == 0 {
+        return None;
+    }
+
+    let mut rank = rng.below(total as usize) as u32;
+    for (k, n) in counts.iter().enumerate() {
+        if rank < *n {
+            let m = index
+                .members(species, cells[k])
+                .iter()
+                .copied()
+                .filter(|m| eligible(*m))
+                .nth(rank as usize)?;
+            return population.get(m as usize);
+        }
+        rank -= n;
+    }
+    None
+}
+
 /// the whole birth rule in one place: eligibility, a mate from *this*
 /// population and no other, recombination followed by birth-time mutation of
 /// both the physical genes and the brain, and the parent's energy split.
@@ -142,19 +235,23 @@ pub struct Conception {
 /// of its own species; a brain that outputs 1.0 forever breeds no more often
 /// than the world allows.
 ///
+/// the mate comes from the wrapped 3x3 around where the parent is **now**, off
+/// one coherent post-movement snapshot: every breeder in a tick queries the
+/// same crowd, so nobody sees half the population where it used to be. that is
+/// why conception is a pass of its own rather than something the visit does.
+///
 /// `breeder` is the parent's own index in `population`, which is what stops it
-/// mating with itself whenever anyone else is available.
+/// from fertilising itself.
 pub fn conceive(
     parent: &Organism,
     intent: f32,
-    breeder: usize,
-    population: &Population,
+    search: &MateSearch<'_>,
     rng: &mut Rng,
 ) -> Option<Conception> {
     if !can_reproduce(parent) || rng.f32() >= intent {
         return None;
     }
-    let mate = population.select_mate(breeder, rng)?;
+    let mate = find_mate(parent, search, rng)?;
     Some(Conception {
         genes: mutate(recombine(parent.genes(), mate.genes(), rng), rng),
         brain: mutate_brain(recombine_brain(parent.brain(), mate.brain(), rng), rng),
@@ -180,7 +277,7 @@ impl Conception {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{OrganismIds, START_ENERGY};
+    use crate::{FounderStreams, OrganismIds, SpeciesBlueprint, START_ENERGY};
     use ecosym_genetics::GenomeIds;
 
     fn brain(seed: u64) -> NeuralGenome {
@@ -215,6 +312,30 @@ mod tests {
         let mut o = CellIndex::default();
         o.rebuild(&[], world);
         o
+    }
+
+    /// one species holding exactly these organisms, in this order, plus the
+    /// post-movement index a conception pass would query
+    fn crowd(world: &World, organisms: Vec<Organism>) -> (Vec<crate::Species>, CellIndex) {
+        let blueprint = SpeciesBlueprint {
+            name: "S".into(),
+            genes: Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 },
+            gene_spread: 0.0,
+        };
+        let mut species = crate::Species::found(
+            crate::SpeciesId::new(0),
+            &blueprint,
+            0,
+            world,
+            &mut FounderStreams { morphology: &mut Rng::new(1), brains: &mut Rng::new(2) },
+            &mut GenomeIds::default(),
+            &mut OrganismIds::default(),
+        );
+        *species.population_mut() = Population::new(organisms);
+        let flock = vec![species];
+        let mut index = CellIndex::default();
+        index.rebuild(&flock, world);
+        (flock, index)
     }
 
     #[test]
@@ -429,15 +550,32 @@ mod tests {
 
     #[test]
     fn conception_needs_the_threshold_and_records_both_parents() {
+        let world = World::generate(1234, 32, 32);
         let (mut o, mut g) = (OrganismIds::default(), GenomeIds::default());
         let hungry = organism((&mut o, &mut g), 1.0);
         let fat = organism((&mut o, &mut g), 100.0);
-        let population = Population::new(vec![fat, hungry]);
+        let (flock, index) = crowd(&world, vec![fat, hungry]);
+        let population = flock[0].population();
         let mut rng = Rng::new(4);
 
-        assert!(conceive(&hungry, 1.0, 1, &population, &mut rng).is_none(), "bred while starving");
+        assert!(
+            conceive(
+                &hungry,
+                1.0,
+                &MateSearch { species: 0, breeder: 1, population, world: &world, index: &index },
+                &mut rng,
+            )
+            .is_none(),
+            "bred while starving"
+        );
 
-        let c = conceive(&fat, 1.0, 0, &population, &mut rng).expect("a fat parent should breed");
+        let c = conceive(
+            &fat,
+            1.0,
+            &MateSearch { species: 0, breeder: 0, population, world: &world, index: &index },
+            &mut rng,
+        )
+        .expect("a fat parent should breed");
         assert_eq!(c.parents, [fat.genome().id(), hungry.genome().id()]);
         assert_eq!(c.energy, fat.energy * BIRTH_ENERGY_SHARE);
         assert!(c.genes.in_bounds());
@@ -457,24 +595,115 @@ mod tests {
     /// rules sit behind, never a permit that gets in front of them
     #[test]
     fn reproductive_intent_cannot_buy_a_birth_the_rules_refuse() {
+        let world = World::generate(1234, 32, 32);
         let (mut o, mut g) = (OrganismIds::default(), GenomeIds::default());
         let starving = organism((&mut o, &mut g), 1.0);
         let fat = organism((&mut o, &mut g), 100.0);
-        let population = Population::new(vec![starving, fat]);
+        let (flock, index) = crowd(&world, vec![starving, fat]);
+        let population = flock[0].population();
         let mut rng = Rng::new(4);
 
         // maximum possible pressure, still not enough energy - every time
         for _ in 0..200 {
-            assert!(conceive(&starving, 1.0, 0, &population, &mut rng).is_none());
+            assert!(conceive(
+                &starving,
+                1.0,
+                &MateSearch { species: 0, breeder: 0, population, world: &world, index: &index },
+                &mut rng,
+            )
+            .is_none());
         }
         // energy to spare, but the policy never asks
         for _ in 0..200 {
-            assert!(conceive(&fat, 0.0, 1, &population, &mut rng).is_none());
+            assert!(conceive(
+                &fat,
+                0.0,
+                &MateSearch { species: 0, breeder: 1, population, world: &world, index: &index },
+                &mut rng,
+            )
+            .is_none());
         }
-        // and no mate of its own species means no birth however much both want one
-        assert!(conceive(&fat, 1.0, 0, &Population::default(), &mut rng).is_none());
+        // and nobody within reach means no birth however much it wants one
+        let (alone, empty) = crowd(&world, vec![fat]);
+        assert!(conceive(
+            &fat,
+            1.0,
+            &MateSearch {
+                species: 0,
+                breeder: 0,
+                population: alone[0].population(),
+                world: &world,
+                index: &empty,
+            },
+            &mut rng,
+        )
+        .is_none());
         // only energy, a mate and the will together
-        assert!(conceive(&fat, 1.0, 1, &population, &mut rng).is_some());
+        assert!(conceive(
+            &fat,
+            1.0,
+            &MateSearch { species: 0, breeder: 1, population, world: &world, index: &index },
+            &mut rng,
+        )
+        .is_some());
+    }
+
+    /// mating is contact. an organism on the far side of the map is not a mate,
+    /// however willing both of them are, and an isolated one leaves no
+    /// descendants at all - which is the whole reason for making it spatial.
+    #[test]
+    fn a_mate_has_to_be_within_reach_and_cannot_be_yourself() {
+        // wide enough to hold two places further apart than the reach. the
+        // 32x32 the other tests use is one small island at this seed.
+        let world = World::generate(1234, 64, 64);
+        let (mut o, mut g) = (OrganismIds::default(), GenomeIds::default());
+        let mut here = organism((&mut o, &mut g), 100.0);
+        (here.x, here.y) = inland(&world);
+        let mut far = organism((&mut o, &mut g), 100.0);
+        (far.x, far.y) = inland_away_from(&world, (here.x, here.y));
+
+        let (flock, index) = crowd(&world, vec![here, far]);
+        let population = flock[0].population();
+        let mut rng = Rng::new(4);
+        for _ in 0..200 {
+            assert!(
+                conceive(
+                    &here,
+                    1.0,
+                    &MateSearch {
+                        species: 0,
+                        breeder: 0,
+                        population,
+                        world: &world,
+                        index: &index,
+                    },
+                    &mut rng,
+                )
+                .is_none(),
+                "bred with an organism it cannot reach"
+            );
+        }
+
+        // a neighbour one tile away is reachable, and it is the only candidate
+        let mut close = organism((&mut o, &mut g), 100.0);
+        (close.x, close.y) = (here.x + 1.0, here.y);
+        if world.is_passable(world.idx(close.x, close.y)) {
+            let (flock, index) = crowd(&world, vec![here, close]);
+            let c = conceive(
+                &here,
+                1.0,
+                &MateSearch {
+                    species: 0,
+                    breeder: 0,
+                    population: flock[0].population(),
+                    world: &world,
+                    index: &index,
+                },
+                &mut rng,
+            )
+            .expect("a neighbour one tile away should be reachable");
+            assert_eq!(c.parents[1], close.genome().id());
+        }
     }
 
     /// pressure is a rate, so a policy that half wants offspring has half as
@@ -484,11 +713,24 @@ mod tests {
         let (mut o, mut g) = (OrganismIds::default(), GenomeIds::default());
         let a = organism((&mut o, &mut g), 100.0);
         let b = organism((&mut o, &mut g), 100.0);
-        let population = Population::new(vec![a, b]);
         let mut rng = Rng::new(8);
 
+        let world = World::generate(1234, 32, 32);
+        let (flock, index) = crowd(&world, vec![a, b]);
+        let population = flock[0].population();
         let tries = |intent: f32, rng: &mut Rng| {
-            (0..1000).filter(|_| conceive(&a, intent, 0, &population, rng).is_some()).count()
+            (0..1000)
+                .filter(|_| {
+                    let search = MateSearch {
+                        species: 0,
+                        breeder: 0,
+                        population,
+                        world: &world,
+                        index: &index,
+                    };
+                    conceive(&a, intent, &search, rng).is_some()
+                })
+                .count()
         };
         assert_eq!(tries(0.0, &mut rng), 0);
         assert_eq!(tries(1.0, &mut rng), 1000);
@@ -503,9 +745,21 @@ mod tests {
             Organism::new(o.mint(), Genome::founder(g.mint(), genes, brain(1)), 8.0, 8.0, 100.0);
         let b =
             Organism::new(o.mint(), Genome::founder(g.mint(), genes, brain(2)), 8.0, 8.0, 100.0);
-        let population = Population::new(vec![a, b]);
-
-        let c = conceive(&a, 1.0, 0, &population, &mut Rng::new(6)).unwrap();
+        let world = World::generate(1234, 32, 32);
+        let (flock, index) = crowd(&world, vec![a, b]);
+        let c = conceive(
+            &a,
+            1.0,
+            &MateSearch {
+                species: 0,
+                breeder: 0,
+                population: flock[0].population(),
+                world: &world,
+                index: &index,
+            },
+            &mut Rng::new(6),
+        )
+        .unwrap();
         assert_ne!(c.brain, *a.brain());
         assert_ne!(c.brain, *b.brain());
         // and it is nearer to its parents than two unrelated brains are to each other
@@ -514,8 +768,43 @@ mod tests {
 
     #[test]
     fn a_lone_survivor_cannot_conceive_from_an_empty_population() {
+        let world = World::generate(1234, 32, 32);
         let (mut o, mut g) = (OrganismIds::default(), GenomeIds::default());
         let fat = organism((&mut o, &mut g), 100.0);
-        assert!(conceive(&fat, 1.0, 0, &Population::default(), &mut Rng::new(4)).is_none());
+        let (flock, index) = crowd(&world, vec![fat]);
+        assert!(conceive(
+            &fat,
+            1.0,
+            &MateSearch {
+                species: 0,
+                breeder: 0,
+                population: flock[0].population(),
+                world: &world,
+                index: &index,
+            },
+            &mut Rng::new(4),
+        )
+        .is_none());
+    }
+
+    /// somewhere inland further than `MATE_REACH` from `from` on both axes,
+    /// counting the short way round the torus, so no wrapped stencil reaches it
+    fn inland_away_from(world: &World, from: (f32, f32)) -> (f32, f32) {
+        let w = world.width();
+        let gap = |a: f32, b: f32, span: usize| {
+            let d = (a - b).abs();
+            d.min(span as f32 - d)
+        };
+        let tile = world
+            .land()
+            .iter()
+            .copied()
+            .find(|i| {
+                let (x, y) = ((i % w) as f32 + 0.5, (i / w) as f32 + 0.5);
+                let far = MATE_REACH as f32 + 1.0;
+                gap(x, from.0, w) > far && gap(y, from.1, world.height()) > far
+            })
+            .expect("this world has no second inland tile, so the test proves nothing");
+        ((tile % w) as f32 + 0.5, (tile / w) as f32 + 0.5)
     }
 }

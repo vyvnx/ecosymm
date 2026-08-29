@@ -16,7 +16,7 @@ mod organism;
 mod population;
 mod species;
 
-pub use behavior::{Act, BehaviorStats, BehaviorTally, Conception, Intent};
+pub use behavior::{Act, BehaviorStats, BehaviorTally, Conception, Intent, MateSearch};
 pub use organism::{Organism, OrganismId, OrganismIds};
 pub use population::Population;
 pub use spatial::CellIndex;
