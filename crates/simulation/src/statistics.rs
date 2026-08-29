@@ -18,9 +18,13 @@ pub struct SpeciesStats {
     pub mean_genes: Genes,
     /// what this species' policies did over the epoch. descriptive.
     pub behavior: BehaviorStats,
+    /// how much those actions varied across organism-ticks. **not** proof that
+    /// individuals hold different strategies - one organism behaving
+    /// differently at different moments reads exactly the same.
+    pub behavior_variance: BehaviorStats,
     /// mean of every weight and bias across the living population. a compact
     /// signature that puts the evolving neural genes into the replay digest
-    /// without hashing 117 floats per organism.
+    /// without hashing 140 floats per organism.
     pub mean_brain: f32,
 }
 
@@ -93,6 +97,7 @@ pub fn species_stats(
     births: usize,
     deaths: usize,
     behavior: BehaviorStats,
+    behavior_variance: BehaviorStats,
 ) -> SpeciesStats {
     let organisms = species.population().organisms();
     SpeciesStats {
@@ -104,6 +109,7 @@ pub fn species_stats(
         mean_energy: mean_energy(species),
         mean_genes: mean_genes(species),
         behavior,
+        behavior_variance,
         mean_brain: mean_brain(species),
     }
 }
@@ -123,6 +129,7 @@ pub fn report(state: &SimulationState, events: &EpochEvents) -> EpochReport {
                     events.births.get(i).copied().unwrap_or(0),
                     events.deaths.get(i).copied().unwrap_or(0),
                     events.behavior.get(i).map(|b| b.mean()).unwrap_or_default(),
+                    events.behavior.get(i).map(|b| b.variance()).unwrap_or_default(),
                 )
             })
             .collect(),

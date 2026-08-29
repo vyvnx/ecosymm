@@ -17,11 +17,14 @@ fn stats(id: u32, population: usize) -> SpeciesStats {
         mean_genes: Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 },
         behavior: BehaviorStats {
             movement: 0.5,
-            food_seeking: 0.5,
+            resource_tracking: 0.5,
             reproduction: 0.5,
             resting: 0.5,
             competitor_exposure: 0.01,
+            occupied_temperature: 0.5,
+            climate_fit: 0.8,
         },
+        behavior_variance: BehaviorStats::default(),
         mean_brain: 0.0,
     }
 }

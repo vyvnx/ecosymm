@@ -242,14 +242,15 @@ async fn a_viewer_that_lags_is_resynchronised_rather_than_waited_for() {
     let state = state().await;
     let hub = state.hub.clone();
     let mut asleep = Viewer::join(&hub);
-    // a world big enough to keep publishing past the broadcast depth rather
-    // than going extinct and ending the run early
+    // what this needs is *messages*, not organisms: enough published epochs to
+    // overrun the broadcast depth, in a world viable enough not to end the run
+    // early by going extinct. a large world only buys a slower test.
     let long = SimConfig {
         seed: 1234,
-        population_per_species: 200,
+        population_per_species: 100,
         epochs: 300,
-        width: 128,
-        height: 128,
+        width: 64,
+        height: 64,
         ticks_per_epoch: 5,
     };
     let task = tokio::spawn(run_forever(state.clone(), Schedule { config: long, ..schedule() }));

@@ -520,7 +520,7 @@ impl Telemetry {
                         Feature::Deaths => s.deaths as f32,
                         Feature::Energy => s.mean_energy,
                         Feature::Movement => s.behavior.movement,
-                        Feature::ResourceTracking => s.behavior.food_seeking,
+                        Feature::ResourceTracking => s.behavior.resource_tracking,
                         Feature::Breeding => s.behavior.reproduction,
                         Feature::Resting => s.behavior.resting,
                         Feature::Exposure => s.behavior.competitor_exposure,

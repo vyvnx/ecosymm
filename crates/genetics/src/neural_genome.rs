@@ -7,11 +7,15 @@
 
 use ecosym_core::Rng;
 
-/// 8 -> 8 -> 5, identical for every organism in the run. only the numbers
+/// 12 -> 8 -> 4, identical for every organism in the run. only the numbers
 /// evolve; evolving the topology itself (NEAT and friends) is out of scope.
-pub const INPUTS: usize = 8;
+///
+/// the input count is the observation contract in `ecology::observations` and
+/// the output count is the decode in `ecology::actions`. all three move
+/// together or the network is reading one thing and answering another.
+pub const INPUTS: usize = 12;
 pub const HIDDEN: usize = 8;
-pub const OUTPUTS: usize = 5;
+pub const OUTPUTS: usize = 4;
 
 pub const WEIGHT_COUNT: usize = INPUTS * HIDDEN + HIDDEN * OUTPUTS;
 pub const BIAS_COUNT: usize = HIDDEN + OUTPUTS;
@@ -63,7 +67,7 @@ impl NeuralGenome {
     /// one forward pass. `tanh` on both layers, so every output is in -1..1 and
     /// the caller never has to defend against an unbounded tendency.
     ///
-    /// ponytail: `tanh` is 13 libm calls per organism-tick and about half the
+    /// ponytail: `tanh` is 12 libm calls per organism-tick and about half the
     /// wall clock of a default run (21.6s against 10.0s measured with the
     /// softsign `x / (1 + |x|)`, which evolves just as well and is bit-identical
     /// across platforms). kept because it is the standard shape and the run is
@@ -124,7 +128,7 @@ impl NeuralGenome {
     }
 
     /// mean of every weight and bias. a compact signature of the whole brain,
-    /// so neural genes reach the replay digest without hashing 117 floats per
+    /// so neural genes reach the replay digest without hashing 140 floats per
     /// organism per epoch.
     pub fn mean(&self) -> f32 {
         self.genes().sum::<f32>() / (WEIGHT_COUNT + BIAS_COUNT) as f32
@@ -158,8 +162,8 @@ mod tests {
 
     #[test]
     fn the_topology_is_fixed_and_the_arrays_match_it() {
-        assert_eq!(WEIGHT_COUNT, 8 * 8 + 8 * 5);
-        assert_eq!(BIAS_COUNT, 8 + 5);
+        assert_eq!(WEIGHT_COUNT, 12 * 8 + 8 * 4);
+        assert_eq!(BIAS_COUNT, 8 + 4);
         let brain = NeuralGenome::default();
         assert_eq!(brain.genes().count(), WEIGHT_COUNT + BIAS_COUNT);
     }

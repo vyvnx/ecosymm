@@ -35,7 +35,6 @@ mod tests {
             let brain = NeuralGenome::random(&mut rng);
             let inputs: [f32; INPUTS] = std::array::from_fn(|_| rng.f32());
             let i = decide(&brain, &inputs);
-            assert!((0.0..=1.0).contains(&i.seek));
             assert!((0.0..=1.0).contains(&i.breed));
             assert!((0.0..=1.0).contains(&i.rest));
             assert!((-1.0..=1.0).contains(&i.east_west));

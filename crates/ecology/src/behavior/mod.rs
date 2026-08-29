@@ -16,7 +16,7 @@ pub mod actions;
 pub mod neural_policy;
 pub mod observations;
 
-pub use actions::{Act, BehaviorStats, BehaviorTally, Intent, Stride};
+pub use actions::{Act, BehaviorStats, BehaviorTally, Intent, Stride, CHANNELS};
 
 use crate::{interactions, phenotype, CellIndex, Organism, OrganismId, Population};
 use ecosym_core::Rng;
@@ -60,27 +60,34 @@ pub fn live_one_tick(
     wander: &mut Rng,
 ) -> (Organism, Act) {
     let genes = *o.genes();
-    let view = observations::scan(&genes, world, o.x, o.y);
-    let inputs = observations::observe(o, species, world, occupancy, &view);
+    let view = observations::scan(&genes, world, occupancy, species, o.x, o.y);
+    let inputs = observations::observe(o, world, &view);
     let intent = neural_policy::decide(o.brain(), &inputs);
+
     let noise = (wander.between(-MOVE_NOISE, MOVE_NOISE), wander.between(-MOVE_NOISE, MOVE_NOISE));
-    let stride = actions::stride(&genes, &intent, view.gradient, noise);
+    let stride = actions::stride(&genes, &intent, noise);
     let (x, y) = walkable(world, (o.x, o.y), (o.x + stride.dx, o.y + stride.dy));
 
     let mut next = *o;
     next.x = x;
     next.y = y;
-    next.last_move = ((next.x - o.x).powi(2) + (next.y - o.y).powi(2)).sqrt();
+    let moved = (next.x - o.x, next.y - o.y);
+    next.last_move = (moved.0 * moved.0 + moved.1 * moved.1).sqrt();
     next.energy = o.energy + interactions::forage(&genes, world, next.x, next.y)
         - phenotype::upkeep(&genes, stride.effort);
     next.age = o.age + 1;
 
+    let temperature = world.temperature_at(world.idx(next.x, next.y));
     let act = Act {
         moved: next.last_move,
-        food_seeking: intent.seek,
+        // measured from the displacement against the direction it was shown,
+        // not read off an output: what it did, not what it wanted
+        tracking: observations::resource_tracking(moved, view.resource),
         reproduction: intent.breed,
         resting: intent.rest,
         competitors: inputs[observations::RIVALS],
+        temperature,
+        climate_fit: phenotype::climate_fit(&genes, temperature),
     };
     (next, act)
 }
@@ -310,7 +317,7 @@ mod tests {
 
     /// a brain with no hidden layer contribution and fixed output biases, so a
     /// movement test can say exactly what the policy asked for
-    fn fixed_intent(output_biases: [f32; 5]) -> NeuralGenome {
+    fn fixed_intent(output_biases: [f32; ecosym_genetics::OUTPUTS]) -> NeuralGenome {
         let mut brain = NeuralGenome::default();
         brain.biases[ecosym_genetics::HIDDEN..].copy_from_slice(&output_biases);
         brain
@@ -341,7 +348,7 @@ mod tests {
         let mut world = World::generate(1234, 32, 32);
         let (x, y) = inland(&world);
         let genes = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
-        let resting = subject(fixed_intent([0.0, 0.0, -4.0, 0.0, 4.0]), x, y);
+        let resting = subject(fixed_intent([0.0, 0.0, 0.0, 4.0]), x, y);
 
         let (paid, ended) = tick_bill(&mut world, &resting);
         assert!(
@@ -375,7 +382,7 @@ mod tests {
         let mut world = World::generate(1234, 32, 32);
         let (x, y) = inland(&world);
         let genes = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
-        let walker = subject(fixed_intent([4.0, 4.0, -4.0, 0.0, -4.0]), x, y);
+        let walker = subject(fixed_intent([4.0, 4.0, 0.0, -4.0]), x, y);
 
         let (paid, ended) = tick_bill(&mut world, &walker);
         assert_ne!(ended, (x, y));
@@ -405,7 +412,7 @@ mod tests {
 
         let genes = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
         // hard north-east, no seeking, no rest: the wander cannot flip either sign
-        let blocked = subject(fixed_intent([4.0, 4.0, -4.0, 0.0, -4.0]), x, y);
+        let blocked = subject(fixed_intent([4.0, 4.0, 0.0, -4.0]), x, y);
 
         let (paid, ended) = tick_bill(&mut world, &blocked);
         assert_eq!(ended, (x, y), "the shore let it through, so this test proves nothing");

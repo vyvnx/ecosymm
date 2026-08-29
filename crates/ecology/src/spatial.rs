@@ -244,18 +244,19 @@ mod tests {
     fn positions_past_the_seam_land_on_the_far_side_of_the_torus() {
         let world = World::generate(1234, 32, 32);
         let flock = vec![
-            species(0, &world, &[(0.5, 0.5), (32.5, 32.5), (64.5, 0.5)]),
+            species(0, &world, &[(0.5, 0.5), (32.5, 32.5), (-31.5, -31.5)]),
             species(1, &world, &[(31.5, 31.5), (-0.5, -0.5)]),
         ];
         let mut index = CellIndex::default();
         index.rebuild(&flock, &world);
 
+        // three ways of writing the same tile, one cell
         assert_eq!(index.same(0, world.idx(0.5, 0.5)), 3);
         assert_eq!(index.members(0, world.idx(0.5, 0.5)), &[0, 1, 2]);
-        // the far corner and the tile before the seam are still distinct cells
-        assert_eq!(index.same(1, world.idx(31.5, 31.5)), 1);
+        // and a step west of the origin is the far column, not the origin
+        assert_eq!(index.same(1, world.idx(31.5, 31.5)), 2);
         let occupied: usize = (0..32 * 32).filter(|c| index.same(1, *c) > 0).count();
-        assert_eq!(occupied, 2, "the seam collapsed two distinct tiles into one");
+        assert_eq!(occupied, 1);
     }
 
     /// what the index costs at a population the default world cannot sustain,

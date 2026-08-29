@@ -14,23 +14,57 @@ workload is worth moving to a device at all.
 - build: `cargo run --release` (`lto = "thin"`, `codegen-units = 1`)
 - engine: `cpu`, single-threaded
 - recorded: 2026-08-29, with evolved neural behaviour, impassable sea, resource
-  dispersal, wander charged as movement effort, and the CSR cell index
+  dispersal, wander charged as movement effort, the CSR cell index, and
+  directional perception
 
 Default scenario - two species, 500 founders each, 500 epochs of 20 ticks
 (10,000 ticks total) on a 128x128 world:
 
-| metric | value | 2026-08-28 |
+| metric | directional perception | free gradient actuator |
 | --- | --- | --- |
-| wall clock | 22.7 s | 24.5 s |
-| peak total population | 5,010 | 5,100 |
-| final population | 4,851 (A 2,644 / B 2,207) | 4,658 |
-| throughput | ~22 epochs/s, ~2.0M organism-ticks/s | ~20 epochs/s |
-| replay digest | `097cb3921e4c0ecb` | `4d8a1fd0975a2c99` |
+| wall clock | 67.7 s | 29.1 s |
+| peak total population | 8,807 | 4,745 |
+| mean population | 8,395 | 4,519 |
+| organism-ticks | 84.0 M | 45.2 M |
+| throughput | 7.4 epochs/s, **1.24 M organism-ticks/s** | 17.2 epochs/s, 1.55 M/s |
+| replay digest | `cef4dae3963e179e` | `de08609476524f6c` |
 
-The digest moved because the per-tick wander stopped being free displacement and
-became part of the intended stride - see
-`experiments/2026-08-29-wander-is-paid-movement`. Organisms now buy the distance
-they cover, so the same world holds slightly fewer of them.
+Both columns are seed 1234 measured on this host; the right-hand one is
+`310eba7`, checked out in a worktree so the two builds are the same compiler on
+the same machine. Mean population is the mean of the 21 sampled epoch rows, so
+organism-ticks are an estimate, not a count.
+
+**The tick got 1.25x more expensive and the world got 1.9x more crowded.** Wall
+clock is 2.3x because those multiply. Only the first number is a cost of this
+change: the second is `experiments/2026-08-29-perception-costs-productivity`
+doubling primary productivity so anything survives at all, and a world holding
+twice as many organisms taking twice as long is the ecology, not the code.
+
+Where the 1.25x went:
+
+| | before | after |
+| --- | ---: | ---: |
+| stencil probes per organism-tick | 4 | 8 |
+| cell-index lookups per probe | 1 | 2 (kin and rivals) |
+| policy multiply-accumulates | 104 (`8 -> 8 -> 5`) | 128 (`12 -> 8 -> 4`) |
+| `tanh` calls | 13 | 12 |
+
+Doubling the stencil is what it cost, and it is what bought a *direction*: four
+probes can rank tiles, eight can say which way. The network is the cheaper half
+of the change and one `tanh` lighter than before.
+
+The `--population-per-species` sweep now says something it did not:
+
+| founders per species | seconds (200 epochs) | peak population |
+| ---: | ---: | ---: |
+| 125 | 41.6 s | 9,565 |
+| 500 | 52.5 s | 9,473 |
+| 2,000 | 65.1 s | 9,488 |
+
+Peak population is flat across a 16x range of founders, where before it tracked
+them (2,496 / 4,952 / 5,128). The world, not the founding stock, is what decides
+how many organisms it holds - which is what carrying capacity binding looks like,
+and it was not binding before.
 
 ### What the policy costs
 

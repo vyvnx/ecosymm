@@ -40,9 +40,14 @@ pub fn twin_blueprints() -> Vec<SpeciesBlueprint> {
     (0..2).map(|i| SpeciesBlueprint { name: format!("Twin {i}"), ..base.clone() }).collect()
 }
 
-/// the ceiling is allocation protection, not carrying capacity
+/// the ceiling is allocation protection, not carrying capacity, so it has to
+/// sit well above anything the ecology can reach on its own. what bounds a
+/// population eating one shared field is tiles, not how many founders were
+/// asked for: with the world's productivity where it is now, the old
+/// founder-only guard started refusing births the world could still feed,
+/// which makes the guard part of the model instead of a backstop.
 fn safety_ceiling(cfg: &SimConfig, species: usize) -> usize {
-    (cfg.population_per_species * species).max(100) * 10
+    ((cfg.population_per_species * species).max(100) * 10).max(cfg.width * cfg.height * 4)
 }
 
 /// owns the engine, the state and the run-long totals. it increments the epoch,
@@ -363,7 +368,7 @@ mod tests {
             let (from, to) = (s.founder_behavior, s.final_behavior);
             let moved = [
                 (to.movement - from.movement).abs(),
-                (to.food_seeking - from.food_seeking).abs(),
+                (to.resource_tracking - from.resource_tracking).abs(),
                 (to.reproduction - from.reproduction).abs(),
                 (to.resting - from.resting).abs(),
             ];
@@ -386,17 +391,27 @@ mod tests {
         sim.advance_epoch().unwrap();
         for s in &sim.outcome().species {
             let b = s.founder_behavior;
-            for (name, v) in [
-                ("food seeking", b.food_seeking),
-                ("reproduction", b.reproduction),
-                ("rest", b.resting),
-            ] {
+            for (name, v) in [("reproduction", b.reproduction), ("rest", b.resting)] {
                 assert!(
                     (v - 0.5).abs() < 0.1,
                     "{} was founded leaning {name} at {v}, not neutral",
                     s.name
                 );
             }
+            // resource tracking is an alignment in -1..1, and a founder draw
+            // does not sit at exactly 0: an organism eats the tile it is
+            // standing on, so the food it left behind is always slightly
+            // downhill of the food ahead of it, and any heading it holds for
+            // more than a tick agrees with that wake a little. that is grazing,
+            // not a policy - it is an order of magnitude under the 0.5 an
+            // evolved tracker reaches, and neither species is handed more of
+            // it than the other.
+            assert!(
+                b.resource_tracking.abs() < 0.15,
+                "{} was founded tracking resources at {}, which is a strategy and not a wake",
+                s.name,
+                b.resource_tracking
+            );
         }
     }
 
