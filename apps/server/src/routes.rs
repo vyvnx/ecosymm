@@ -211,11 +211,17 @@ pub async fn current_market(State(state): State<AppState>, headers: HeaderMap) -
         Err(e) => return refused(e),
     };
 
+    let bettors = match store::bettors(&state.db, market.id).await {
+        Ok(bettors) => bettors,
+        Err(e) => return refused(e),
+    };
+
     let bet = match signed_in(&state, &headers).await {
         Some(account) => store::bet_of(&state.db, market.id, account.id).await.ok().flatten(),
         None => None,
     };
-    Json(MarketResponse { market: coordinator::view(&market, pools, now()), bet }).into_response()
+    Json(MarketResponse { market: coordinator::view(&market, pools, bettors, now()), bet })
+        .into_response()
 }
 
 /// "make my bet exactly this". a repeat of the same request reserves nothing

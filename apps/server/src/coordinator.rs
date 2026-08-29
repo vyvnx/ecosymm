@@ -29,9 +29,10 @@ use std::time::{Duration, Instant};
 /// fixed constants, not runtime configuration.
 pub const MARKET_WINDOW: Duration = Duration::from_secs(30);
 pub const RUN_WINDOW: Duration = Duration::from_secs(60);
-/// long enough to read what the market paid before the next one opens over
-/// it. without it a settlement is broadcast and replaced in the same instant.
-pub const RESULT_WINDOW: Duration = Duration::from_secs(8);
+/// the payout phase. long enough to read who took the run, what it did to the
+/// world and where the pot went, before the next market opens over it.
+/// without it a settlement is broadcast and replaced in the same instant.
+pub const RESULT_WINDOW: Duration = Duration::from_secs(12);
 
 /// at most ~15 render samples a wall-clock second. when the server falls
 /// behind it is samples that are dropped, never epochs.
@@ -122,6 +123,9 @@ pub struct MarketView {
     pub species: Vec<SpeciesLabel>,
     pub rules: RulesView,
     pub pools: [i64; 3],
+    /// how many accounts backed each outcome. the pools say how much is at
+    /// stake, this says how many people are.
+    pub bettors: [i64; 3],
     /// decimal return one more coin would claim on each outcome, from the
     /// pools as they stand. an estimate that moves until lock.
     pub projected: [f64; 3],
@@ -131,7 +135,7 @@ pub struct MarketView {
     pub digest: Option<String>,
 }
 
-pub fn view(market: &MarketRow, pools: [i64; 3], now: i64) -> MarketView {
+pub fn view(market: &MarketRow, pools: [i64; 3], bettors: [i64; 3], now: i64) -> MarketView {
     let totals = pools.map(|p| ecosym_game::Coins::new(p).unwrap_or_default());
     let pool = Pool::new(totals);
     let one = ecosym_game::Coins::new(1).expect("one coin");
@@ -159,6 +163,7 @@ pub fn view(market: &MarketRow, pools: [i64; 3], now: i64) -> MarketView {
             max_stake: market.rules.max_stake.get(),
         },
         pools,
+        bettors,
         projected,
         gross_pool: market.gross_pool.unwrap_or(0),
         burn: market.burn.unwrap_or(0),
@@ -179,7 +184,8 @@ pub async fn republish(state: &AppState, market_id: i64, kind: &str) -> store::R
     let market =
         store::market(&state.db, market_id).await?.ok_or(store::Refusal::MarketNotFound)?;
     let pools = store::pools(&state.db, market_id).await?;
-    let view = view(&market, pools, now());
+    let bettors = store::bettors(&state.db, market_id).await?;
+    let view = view(&market, pools, bettors, now());
     state.hub.publish(Slot::Market, market_message(kind, &view));
     Ok(view)
 }
@@ -236,9 +242,9 @@ async fn one_run(state: &AppState, schedule: &Schedule) -> store::Result<()> {
     .await?;
 
     let pools = store::pools(&state.db, market.id).await?;
-    state
-        .hub
-        .open_run(market.run_id, market_message("market_open", &view(&market, pools, opened_at)));
+    let bettors = store::bettors(&state.db, market.id).await?;
+    let opening = view(&market, pools, bettors, opened_at);
+    state.hub.open_run(market.run_id, market_message("market_open", &opening));
 
     tokio::time::sleep(schedule.market).await;
 

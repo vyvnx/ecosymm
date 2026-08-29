@@ -6,6 +6,7 @@ import {
   formatMultiplier,
   outcomeLabels,
   parseStake,
+  payoutLine,
   projection,
   secondsUntil,
   settlementLine,
@@ -73,6 +74,47 @@ test('the three buttons keep the order the server sent species in', () => {
       ['species_b', 'Species B'],
     ],
   )
+})
+
+test('the payout phase says where the whole pot went', () => {
+  const species = [{ name: 'Species A' }, { name: 'Species B' }]
+  const settled = {
+    phase: 'settled',
+    winning_outcome: 'species_b',
+    species,
+    gross_pool: 50,
+    burn: 2,
+  }
+
+  assert.deepEqual(payoutLine({ ...settled, bettors: [1, 0, 3] }), {
+    amount: 48,
+    prefix: 'paying out',
+    suffix: 'to 3 backers of Species B',
+    tone: 'pay',
+  })
+  // one backer is not "1 backers"
+  assert.equal(payoutLine({ ...settled, bettors: [1, 0, 1] }).suffix, 'to 1 backer of Species B')
+
+  // nobody was right: the pool burns whole and no winner is invented
+  assert.deepEqual(payoutLine({ ...settled, burn: 50, bettors: [2, 1, 0] }), {
+    amount: 50,
+    prefix: 'burning',
+    suffix: 'nobody backed Species B',
+    tone: 'burn',
+  })
+
+  // everything died
+  assert.deepEqual(payoutLine({ phase: 'void', species, gross_pool: 30, bettors: [1, 1, 0] }), {
+    amount: 30,
+    prefix: 'refunding',
+    suffix: 'nothing survived',
+    tone: 'void',
+  })
+
+  // and a market nobody entered has nothing to report
+  assert.equal(payoutLine({ ...settled, gross_pool: 0, bettors: [0, 0, 0] }), null)
+  assert.equal(payoutLine({ ...settled, phase: 'locked' }), null)
+  assert.equal(payoutLine(null), null)
 })
 
 test('a settlement is only ever reported as what it did to your own coins', () => {

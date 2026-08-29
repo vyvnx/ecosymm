@@ -6,3 +6,31 @@
     transform: translateY(4px);
   }
 }
+
+/* the pot moving. a highlight crosses the payout as it lands and then stops -
+   the point is that the coins went somewhere, not that the line is animated. */
+@keyframes payout-sweep {
+  from {
+    background-position: 220% center;
+  }
+  to {
+    background-position: -120% center;
+  }
+}
+
+.payout-sweep {
+  background-image: linear-gradient(100deg, #34d399 35%, #ecfdf5 50%, #34d399 65%);
+  background-size: 220% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: payout-sweep 1.6s linear 2 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .payout-sweep {
+    animation: none;
+    background-image: none;
+    color: #34d399;
+  }
+}

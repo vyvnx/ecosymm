@@ -481,6 +481,24 @@ pub async fn pools(pool: &SqlitePool, market_id: i64) -> Result<[i64; 3]> {
     Ok(totals)
 }
 
+/// how many accounts backed each outcome, in the same order as the pools.
+/// the coins say how much is at stake; this says how many people are.
+pub async fn bettors(pool: &SqlitePool, market_id: i64) -> Result<[i64; 3]> {
+    let rows = sqlx::query(
+        "SELECT outcome, COUNT(*) AS backers FROM bets WHERE market_id = ? GROUP BY outcome",
+    )
+    .bind(market_id)
+    .fetch_all(pool)
+    .await?;
+    let mut counts = [0i64; 3];
+    for row in &rows {
+        if let Some(outcome) = MarketOutcome::parse(row.get("outcome")) {
+            counts[outcome.index()] = row.get("backers");
+        }
+    }
+    Ok(counts)
+}
+
 pub async fn bet_of(pool: &SqlitePool, market_id: i64, account_id: i64) -> Result<Option<BetRow>> {
     let mut tx = pool.begin().await?;
     let bet = load_bet(&mut tx, market_id, account_id).await?;

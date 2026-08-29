@@ -66,6 +66,42 @@ export function outcomeLabels(species) {
 }
 
 /**
+ * where the pot went, for the payout phase. `null` when there is nothing to
+ * say, because nobody bet on this one.
+ *
+ * three endings, and the losing two are the interesting ones: a pool nobody
+ * backed burns whole, and a world that died gives everything back.
+ */
+export function payoutLine(market) {
+  if (!market) return null
+  const gross = market.gross_pool ?? 0
+  if (gross <= 0) return null
+
+  if (market.phase === 'void') {
+    return { amount: gross, prefix: 'refunding', suffix: 'nothing survived', tone: 'void' }
+  }
+  if (market.phase !== 'settled') return null
+
+  const outcomes = outcomeLabels(market.species)
+  const index = outcomes.findIndex((o) => o.key === market.winning_outcome)
+  const winners = index < 0 ? 0 : (market.bettors?.[index] ?? 0)
+  if (winners === 0) {
+    return {
+      amount: gross,
+      prefix: 'burning',
+      suffix: `nobody backed ${outcomes[index]?.label ?? 'it'}`,
+      tone: 'burn',
+    }
+  }
+  return {
+    amount: gross - (market.burn ?? 0),
+    prefix: 'paying out',
+    suffix: `to ${winners} ${winners === 1 ? 'backer' : 'backers'} of ${outcomes[index].label}`,
+    tone: 'pay',
+  }
+}
+
+/**
  * what a settled market did to *your* coins, or nothing.
  *
  * who took the market is the run's own result and is said once, where the run

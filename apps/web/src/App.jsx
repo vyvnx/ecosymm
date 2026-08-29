@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import AccountPanel from "./AccountPanel.jsx";
 import BetPanel from "./BetPanel.jsx";
+import RunResult from "./RunResult.jsx";
 import WorldView, { createController } from "./WorldView.jsx";
 import { api } from "./game/api.js";
-import { formatCoins, settlementLine } from "./game/coins.js";
 import { fromAnotherRun, initialMarket, reduceMarket } from "./game/market.js";
 import { decode } from "./render/protocol.js";
 import { speciesCss } from "./render/WorldRenderer.js";
@@ -27,9 +27,6 @@ export default function App() {
   const [game, setGame] = useState(initialMarket);
   const [account, setAccount] = useState(null);
   const [bet, setBet] = useState(null);
-  // the market as it settled, kept beside the run's obituary so both survive
-  // into the next betting window instead of vanishing when it opens
-  const [result, setResult] = useState(null);
   // bumped whenever the socket has to start again: a bootstrap that did not
   // add up, or signing in and out, which is what re-authenticates it
   const [socketKey, setSocketKey] = useState(0);
@@ -70,9 +67,6 @@ export default function App() {
     try {
       const market = await api.market();
       setBet(market.bet ?? null);
-      if (market.phase === "settled" || market.phase === "void") {
-        setResult({ market, bet: market.bet ?? null });
-      }
       setGame((g) => reduceMarket(g, { type: "market_fetched", market }));
     } catch {
       // the socket carries the market too; a failed fetch is not fatal
@@ -156,7 +150,6 @@ export default function App() {
           runId.current = null;
           controller.current.reset();
           setDone(null);
-          setResult(null);
           setFailure(null);
           setStart(null);
           setStatus("synchronising");
@@ -191,7 +184,6 @@ export default function App() {
           runId.current = msg.run_id ?? null;
           controller.current.reset();
           setDone(null);
-          setResult(null);
           setStart(msg);
         }
         if (msg.type === "epoch") report.current = msg.report;
@@ -232,6 +224,10 @@ export default function App() {
 
   const last = hud.report;
   const cards = last?.species ?? start?.species ?? [];
+  // a finished run is only reported while its own market is still the current
+  // one. once the next market opens, the run card leaves and betting returns.
+  const finished =
+    done && (game.market?.phase === "settled" || game.market?.phase === "void");
 
   return (
     <div className="fixed inset-0 bg-neutral-950 font-mono text-neutral-200">
@@ -316,71 +312,16 @@ export default function App() {
         onBet={placeBet}
       />
 
-      {/* the run's obituary. it arrives with `done` and leaves on its own when
-          the next run's config lands, so the transition is something you can
-          read */}
-      {done && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
-          <div className="w-80 max-w-full animate-[outcome-in_400ms_ease-out] rounded border border-neutral-800/80 bg-neutral-950/85 p-4 text-xs backdrop-blur motion-reduce:animate-none">
-            <div className="flex items-baseline justify-between text-neutral-600">
-              <span>{done.epochs.toLocaleString()} epochs</span>
-              <span>{status}</span>
-            </div>
-
-            <p className="mt-2 text-sm text-neutral-100">
-              {winnerLine(done.outcome)}
-            </p>
-
-            {/* what the market did to *your* coins. said here, once, beside
-                the run it came out of */}
-            {result && settlementLine(result.market, result.bet) && (
-              <p
-                className={`mt-1 ${
-                  result.bet?.outcome === result.market.winning_outcome
-                    ? "text-emerald-400"
-                    : "text-neutral-500"
-                }`}
-              >
-                {settlementLine(result.market, result.bet)}
-              </p>
-            )}
-
-            {/* same order as everywhere else, so a colour means one species */}
-            <div className="mt-3 space-y-0.5 tabular-nums">
-              {done.outcome.species.map((s, i) => (
-                <div key={s.id} className="flex items-baseline gap-2">
-                  <span
-                    className="h-2 w-2 rounded-full"
-                    style={{ background: speciesCss(i) }}
-                  />
-                  <span className="text-neutral-300">{s.name}</span>
-                  <span className="ml-auto text-neutral-600">
-                    {s.initial.toLocaleString()} &rarr;
-                  </span>
-                  <span className="w-12 text-right text-neutral-100">
-                    {s.final_population.toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {result?.market.gross_pool > 0 && (
-              <p className="mt-3 text-neutral-600">
-                {formatCoins(result.market.gross_pool)} wagered ·{" "}
-                {formatCoins(result.market.burn)} burned
-              </p>
-            )}
-
-            {/* one identifier per line: a u64 seed is long enough to wrap a
-                shared line mid-phrase */}
-            <div className="mt-3 text-neutral-600">
-              <p>seed {start?.seed_hex}</p>
-              <p>
-                digest <span className="text-emerald-400">{done.digest}</span>
-              </p>
-            </div>
-          </div>
-        </div>
+      {/* the payout phase. the betting panel hides itself while a market is
+          settled, so exactly one of the two is ever on screen. */}
+      {finished && (
+        <RunResult
+          done={done}
+          market={game.market}
+          bet={bet}
+          seedHex={start?.seed_hex}
+          status={status}
+        />
       )}
     </div>
   );
@@ -395,12 +336,3 @@ function Row({ label, value }) {
   );
 }
 
-function winnerLine(outcome) {
-  if (!outcome) return "";
-  const name = (id) =>
-    outcome.species.find((s) => s.id === id)?.name ?? `species ${id}`;
-  if (outcome.winner === "None") return "no winner, everything died";
-  if (outcome.winner.Species !== undefined)
-    return `winner ${name(outcome.winner.Species)}`;
-  return `tie between ${outcome.winner.Tie.map(name).join(", ")}`;
-}
