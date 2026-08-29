@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A source-grounded explanation of ecosym world generation, species genetics, neural behavior, CPU execution, and GPU status.">
+  <title>Inside ecosym | Algorithms and execution report</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #e8eadf;
+      --muted: #a7ad9b;
+      --paper: #10140f;
+      --panel: #171c15;
+      --panel-2: #1d241b;
+      --line: #34402e;
+      --moss: #9fbd73;
+      --lichen: #d2da93;
+      --water: #79b7bd;
+      --rust: #db8e61;
+      --gold: #d7b85f;
+      --code: #0b0f0a;
+      --max: 1160px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 78% 0%, rgba(121, 183, 189, 0.12), transparent 30rem),
+        linear-gradient(90deg, rgba(159, 189, 115, 0.025) 1px, transparent 1px),
+        linear-gradient(rgba(159, 189, 115, 0.025) 1px, transparent 1px),
+        var(--paper);
+      background-size: auto, 32px 32px, 32px 32px, auto;
+      color: var(--ink);
+      font: 16px/1.65 Georgia, "Times New Roman", serif;
+    }
+
+    a { color: var(--lichen); text-underline-offset: 0.2em; }
+    code, pre, .eyebrow, .tag, .source, nav, th, .metric, .formula {
+      font-family: "IBM Plex Mono", "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      max-width: var(--max);
+      margin: 0 auto;
+      min-height: 100vh;
+    }
+
+    nav {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      padding: 2rem 1.35rem;
+      border-right: 1px solid var(--line);
+      background: rgba(16, 20, 15, 0.88);
+      backdrop-filter: blur(12px);
+      overflow-y: auto;
+      font-size: 0.76rem;
+      letter-spacing: 0.03em;
+    }
+
+    nav strong {
+      display: block;
+      color: var(--moss);
+      font-size: 0.72rem;
+      letter-spacing: 0.16em;
+      margin-bottom: 1.35rem;
+      text-transform: uppercase;
+    }
+
+    nav a {
+      display: block;
+      color: var(--muted);
+      padding: 0.42rem 0;
+      text-decoration: none;
+    }
+
+    nav a:hover, nav a:focus { color: var(--ink); }
+
+    main { min-width: 0; }
+    article { padding: 0 3.5rem 6rem; }
+
+    header {
+      min-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      border-bottom: 1px solid var(--line);
+      padding: 5rem 0 4rem;
+    }
+
+    .eyebrow {
+      color: var(--moss);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3 { line-height: 1.05; }
+    h1 {
+      max-width: 820px;
+      margin: 1rem 0;
+      font-size: clamp(3.3rem, 8vw, 7rem);
+      font-weight: 400;
+      letter-spacing: -0.06em;
+    }
+
+    h1 em { color: var(--water); font-weight: 400; }
+    h2 {
+      margin: 0 0 1.5rem;
+      font-size: clamp(2.1rem, 5vw, 4rem);
+      font-weight: 400;
+      letter-spacing: -0.045em;
+    }
+
+    h3 {
+      margin: 2.4rem 0 0.8rem;
+      color: var(--lichen);
+      font-size: 1.3rem;
+      font-weight: 500;
+    }
+
+    p { max-width: 76ch; }
+    .lede { max-width: 710px; color: #c9cebd; font-size: 1.3rem; }
+    .stamp { margin-top: 2rem; color: var(--muted); font-size: 0.86rem; }
+
+    section {
+      padding: 5rem 0;
+      border-bottom: 1px solid var(--line);
+      scroll-margin-top: 2rem;
+    }
+
+    .section-no {
+      color: var(--rust);
+      display: block;
+      font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      margin-bottom: 0.75rem;
+      text-transform: uppercase;
+    }
+
+    .grid-2, .grid-3, .metrics, .pipeline, .brain-grid {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 2rem 0; }
+
+    .card, .metric, .callout {
+      border: 1px solid var(--line);
+      background: linear-gradient(145deg, rgba(29, 36, 27, 0.92), rgba(23, 28, 21, 0.9));
+      border-radius: 4px;
+      padding: 1.25rem;
+    }
+
+    .card h3 { margin-top: 0; }
+    .metric strong { display: block; color: var(--lichen); font-size: 1.45rem; }
+    .metric span { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; }
+    .callout { border-left: 4px solid var(--water); margin: 1.5rem 0; }
+    .callout.warning { border-left-color: var(--rust); }
+    .callout strong { color: var(--lichen); }
+
+    .pipeline {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      margin: 2rem 0;
+    }
+
+    .pipeline .step {
+      position: relative;
+      min-height: 112px;
+      border-top: 2px solid var(--moss);
+      background: rgba(159, 189, 115, 0.06);
+      padding: 1rem 0.85rem;
+    }
+
+    .pipeline .step:not(:last-child)::after {
+      position: absolute;
+      z-index: 1;
+      right: -0.75rem;
+      top: 50%;
+      color: var(--moss);
+      content: "→";
+      transform: translateY(-50%);
+    }
+
+    .step b { display: block; color: var(--lichen); font-size: 0.9rem; }
+    .step small { color: var(--muted); }
+
+    pre {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--moss);
+      border-radius: 3px;
+      background: var(--code);
+      color: #d9dfd0;
+      padding: 1.2rem;
+      font-size: 0.82rem;
+      line-height: 1.62;
+      tab-size: 2;
+    }
+
+    code { color: #dfe8b7; font-size: 0.9em; }
+    .formula {
+      overflow-x: auto;
+      margin: 1rem 0;
+      border-left: 2px solid var(--gold);
+      background: rgba(215, 184, 95, 0.06);
+      color: #ede3b7;
+      padding: 0.9rem 1rem;
+      white-space: nowrap;
+    }
+
+    table {
+      width: 100%;
+      margin: 1.5rem 0;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+
+    th, td { border-bottom: 1px solid var(--line); padding: 0.75rem 0.65rem; text-align: left; vertical-align: top; }
+    th { color: var(--moss); font-size: 0.72rem; letter-spacing: 0.07em; text-transform: uppercase; }
+    td:first-child { color: var(--lichen); }
+
+    .source {
+      display: inline-block;
+      max-width: 100%;
+      color: var(--muted);
+      font-size: 0.7rem;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .tag {
+      display: inline-block;
+      margin: 0.15rem 0.2rem 0.15rem 0;
+      border: 1px solid var(--line);
+      border-radius: 99px;
+      color: var(--muted);
+      padding: 0.18rem 0.55rem;
+      font-size: 0.68rem;
+    }
+
+    .brain-grid {
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      align-items: stretch;
+      margin: 2rem 0;
+    }
+
+    .layer {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      padding: 1rem;
+    }
+
+    .layer strong { color: var(--water); }
+    .layer ol { margin: 0.7rem 0 0; padding-left: 1.3rem; font-size: 0.82rem; }
+    .arrow { align-self: center; color: var(--moss); font-size: 1.8rem; }
+
+    .truth {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      overflow: hidden;
+      margin: 2rem 0;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+    }
+
+    .truth > div { padding: 1.25rem; }
+    .truth > div:first-child { background: rgba(159, 189, 115, 0.08); }
+    .truth > div:last-child { background: rgba(219, 142, 97, 0.07); border-left: 1px solid var(--line); }
+    .truth h3 { margin-top: 0; }
+
+    ul, ol { max-width: 76ch; padding-left: 1.25rem; }
+    li { margin: 0.45rem 0; }
+    footer { padding: 4rem 0 1rem; color: var(--muted); font-size: 0.85rem; }
+
+    @media (max-width: 900px) {
+      .shell { display: block; }
+      nav {
+        position: static;
+        width: 100%;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+        columns: 2;
+      }
+      nav strong { column-span: all; }
+      article { padding: 0 1.25rem 4rem; }
+      header { min-height: 75vh; }
+      .grid-3, .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .pipeline { grid-template-columns: 1fr; }
+      .pipeline .step { min-height: 0; }
+      .pipeline .step:not(:last-child)::after { content: "↓"; right: 1rem; top: auto; bottom: -1.15rem; }
+      .brain-grid { grid-template-columns: 1fr; }
+      .arrow { justify-self: center; transform: rotate(90deg); }
+    }
+
+    @media (max-width: 560px) {
+      nav { columns: 1; }
+      .grid-2, .grid-3, .metrics, .truth { grid-template-columns: 1fr; }
+      .truth > div:last-child { border-top: 1px solid var(--line); border-left: 0; }
+      h1 { font-size: 3.2rem; }
+      table { display: block; overflow-x: auto; white-space: nowrap; }
+    }
+
+    @media print {
+      :root { color-scheme: light; --ink: #172014; --muted: #4e5948; --paper: white; --panel: #f4f6ef; --panel-2: #eef1e7; --line: #aeb7a5; --code: #f2f4ee; }
+      body { background: white; color: var(--ink); font-size: 11pt; }
+      .shell { display: block; max-width: none; }
+      nav { display: none; }
+      article { padding: 0; }
+      header { min-height: auto; }
+      section { break-inside: auto; padding: 2rem 0; }
+      .card, .metric, .callout, .layer, pre { break-inside: avoid; background: var(--panel); }
+      pre, code { color: #25331f; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav aria-label="Report sections">
+      <strong>Field index</strong>
+      <a href="#summary">00 / Executive model</a>
+      <a href="#architecture">01 / Architecture</a>
+      <a href="#world">02 / World generation</a>
+      <a href="#resources">03 / Resources</a>
+      <a href="#species">04 / Species &amp; genomes</a>
+      <a href="#brain">05 / Neural behavior</a>
+      <a href="#life">06 / One life tick</a>
+      <a href="#reproduction">07 / Reproduction</a>
+      <a href="#cpu">08 / CPU engine</a>
+      <a href="#gpu">09 / GPU reality</a>
+      <a href="#determinism">10 / Determinism</a>
+      <a href="#complexity">11 / Cost model</a>
+      <a href="#behaviors">12 / Emergent behavior</a>
+      <a href="#sources">13 / Source map</a>
+    </nav>
+
+    <main>
+      <article>
+        <header>
+          <span class="eyebrow">ecosym / implementation report / 2026-08-28</span>
+          <h1>Inside the <em>living machine.</em></h1>
+          <p class="lede">How a deterministic world becomes terrain, how an organism becomes a species, how an inherited 8→8→5 neural policy becomes behavior, and how the CPU advances the ecosystem one contested resource at a time.</p>
+          <p class="stamp">Source-grounded against the current Rust workspace. “Implemented” and “future” are kept deliberately separate.</p>
+        </header>
+
+        <section id="summary">
+          <span class="section-no">00 / Executive model</span>
+          <h2>The whole simulation in one page</h2>
+          <p>The simulation is continuous ecology, not a turn-based genetic algorithm. There are no discrete biological generations, no trainer, no reward function, and no organism controller. Every organism inherits a body and a tiny neural network. Organisms that gather enough energy reproduce; organisms that fail die. That differential survival is the optimizer.</p>
+
+          <div class="pipeline" aria-label="End-to-end simulation pipeline">
+            <div class="step"><b>Seed</b><small>Named deterministic random streams</small></div>
+            <div class="step"><b>World</b><small>Terrain, climate, finite food</small></div>
+            <div class="step"><b>Founders</b><small>Body genes + random inherited brains</small></div>
+            <div class="step"><b>Ticks</b><small>Observe, decide, move, eat, breed, die</small></div>
+            <div class="step"><b>Evolution</b><small>Surviving alleles become common</small></div>
+          </div>
+
+          <div class="metrics">
+            <div class="metric"><strong>128 × 128</strong><span>default world</span></div>
+            <div class="metric"><strong>2 × 500</strong><span>default founders</span></div>
+            <div class="metric"><strong>20</strong><span>ticks per epoch</span></div>
+            <div class="metric"><strong>117</strong><span>neural genes per brain</span></div>
+          </div>
+
+          <div class="callout">
+            <strong>The central distinction:</strong> the network proposes tendencies; ecology turns them into legal, energy-priced actions. Evolution changes the network weights and body genes only at birth.
+          </div>
+          <span class="source">README.md:3-19 · crates/core/src/lib.rs:73-97 · crates/ecology/src/behavior/mod.rs:44-89</span>
+        </section>
+
+        <section id="architecture">
+          <span class="section-no">01 / Architecture</span>
+          <h2>Rules point one way</h2>
+          <p>The workspace separates model meaning from execution. Genetics owns inherited numbers. Ecology owns what those numbers cost and do. Simulation owns state and scheduling. A backend may change where bytes live and how work is scheduled, but not the ecological rules.</p>
+
+          <div class="grid-3">
+            <div class="card">
+              <h3>World</h3>
+              <p>Static terrain and temperature; mutable shared resources.</p>
+              <span class="tag">world</span><span class="tag">row-major fields</span>
+            </div>
+            <div class="card">
+              <h3>Organism</h3>
+              <p>Stable identity, immutable genome, mutable position, energy, age and movement memory.</p>
+              <span class="tag">genetics</span><span class="tag">ecology</span>
+            </div>
+            <div class="card">
+              <h3>Engine</h3>
+              <p>Visit order, snapshots, birth admission, death removal and resource regrowth.</p>
+              <span class="tag">simulation</span><span class="tag">CPU today</span>
+            </div>
+          </div>
+
+          <pre><code>core        → RNG, hashing, SimConfig
+genetics    → Genes, immutable Genome, NeuralGenome, mutation
+world       → terrain, climate, resource field
+ecology     → phenotype, observations, actions, reproduction
+simulation  → SimulationState, EpochEngine, CpuEngine
+replay      → deterministic report digest
+gpu         → empty future backend crate</code></pre>
+          <p>An epoch is only a batch of ticks. Parents and descendants coexist, so epoch number is not genealogical depth.</p>
+          <span class="source">README.md:95-123 · crates/simulation/src/epoch.rs:8-23,75-125</span>
+        </section>
+
+        <section id="world">
+          <span class="section-no">02 / World generation</span>
+          <h2>From one seed to land and sea</h2>
+          <p><code>SimulationState::found</code> derives an isolated <code>world</code> seed, then builds contiguous row-major fields. Terrain does not consume a mutable RNG; each lattice value is a hash of the seed and integer coordinates. This means visiting cells in another order would still produce the same values.</p>
+
+          <h3>2.1 Two-octave value noise</h3>
+          <pre><code>fbm(seed, x, y, frequency):
+  low  = value_noise(seed,          x·frequency,     y·frequency)
+  high = value_noise(seed XOR 0x5EED, x·frequency·2.7, y·frequency·2.7)
+  return clamp(0.67·low + 0.33·high, 0, 1)
+
+value_noise(seed, x, y):
+  read four hashed lattice corners
+  smooth local x and y with t²(3 − 2t)
+  bilinearly interpolate the four values</code></pre>
+          <p>Elevation uses frequency <code>0.045</code>. Wetness uses a separate seed (<code>seed XOR 0xA5A5</code>) and frequency <code>0.025</code>.</p>
+
+          <h3>2.2 Fertility decides both capacity and passability</h3>
+          <div class="formula">elevation &lt; 0.42 → fertility = 0.05 (sea)</div>
+          <div class="formula">otherwise → fertility = min(0.2 + 1.6 · wetness · (elevation − 0.42), 1.0)</div>
+          <p>A tile is habitable and walkable only when <code>fertility &gt; 0.1</code>. If a non-empty generated world somehow contains no such tile, the best tile is promoted to <code>0.2</code>. A sorted cache of land indices makes founder placement one tile draw rather than rejection sampling.</p>
+
+          <h3>2.3 Fixed climate</h3>
+          <div class="formula">latitude(y) = 1 − |2y / height − 1|</div>
+          <div class="formula">temperature = clamp(0.8 · latitude + 0.2 · wetness − 0.35 · elevation, 0, 1)</div>
+          <p>Temperature is generated once. It never changes. It does not alter regrowth or passability; it changes how attractive food looks and how much harvested energy an organism can absorb.</p>
+
+          <h3>2.4 The topology is a torus</h3>
+          <pre><code>tile_index(x, y):
+  xi = truncate_toward_zero(x) mod_euclid width
+  yi = truncate_toward_zero(y) mod_euclid height
+  return yi·width + xi</code></pre>
+          <p>Lookup wraps, but raw organism coordinates are not normalized after movement. The generated noise is also not periodic, so the simulation topology wraps even though opposite terrain edges are not guaranteed to join visually.</p>
+
+          <div class="callout warning">
+            <strong>Important coordinate nuance:</strong> <code>-0.5</code> truncates to integer zero before wrapping, so simulation lookup treats it as tile 0. Whole negative coordinates such as <code>-1</code> wrap to the last tile.
+          </div>
+          <span class="source">crates/simulation/src/state.rs:18-53 · crates/world/src/terrain.rs:5-66 · crates/world/src/climate.rs:5-18 · crates/world/src/lib.rs:15-50,75-103,147-156</span>
+        </section>
+
+        <section id="resources">
+          <span class="section-no">03 / Resources</span>
+          <h2>One finite field, shared by all species</h2>
+          <p>Each tile starts full: standing resource equals fertility capacity. Every species harvests the same mutable field. Feeding is immediate, so organisms visited earlier in a tick can leave less food for organisms visited later.</p>
+
+          <div class="grid-2">
+            <div class="card">
+              <h3>Harvest</h3>
+              <div class="formula">wanted = 0.9 · size · metabolism</div>
+              <div class="formula">taken = min(standing, wanted)</div>
+              <div class="formula">absorbed = taken · climate_fit</div>
+              <p>The climate-discounted energy is lost; it is not returned to the tile.</p>
+            </div>
+            <div class="card">
+              <h3>Climate fit</h3>
+              <div class="formula">fit = max(1 − 1.5 · |temperature − heat_pref|, 0.1)</div>
+              <p>A perfect match keeps 100%; even the worst mismatch keeps 10%.</p>
+            </div>
+          </div>
+
+          <h3>Synchronous regrowth with local seed rain</h3>
+          <pre><code>for every tile i:
+  fullness[i] = standing[i] / capacity[i]  if capacity[i] &gt; 0.1
+                0                           otherwise
+
+for every tile i, using the saved fullness field:
+  rain = (left + right + up + down) / 4
+  growth = capacity[i] · (0.06 + 0.04·rain)
+  standing[i] = min(standing[i] + growth, capacity[i])</code></pre>
+          <p>The four neighbors wrap around the world. A tile regrows 6% of capacity without seed rain and up to 10% with four full neighbors. Fullness is snapshotted first, preventing row-order feedback. Seed rain creates extra growth; it does not transfer biomass out of neighboring tiles.</p>
+          <span class="source">crates/world/src/resources.rs:6-17,19-40,55-95 · crates/ecology/src/interactions.rs:12-18 · crates/ecology/src/phenotype.rs:34-57</span>
+        </section>
+
+        <section id="species">
+          <span class="section-no">04 / Species and genomes</span>
+          <h2>A species is an isolated gene pool</h2>
+          <p>A <code>SpeciesBlueprint</code> is used only to create founders. It contains a name, four baseline body genes, and founder variation. It deliberately contains no hand-authored brain. After founding, the blueprint is reporting history, not a template pulling descendants back toward it.</p>
+
+          <table>
+            <thead><tr><th>Default species</th><th>Speed</th><th>Size</th><th>Metabolism</th><th>Heat preference</th></tr></thead>
+            <tbody>
+              <tr><td>Species A</td><td>1.30</td><td>1.00</td><td>1.20</td><td>0.62</td></tr>
+              <tr><td>Species B</td><td>0.70</td><td>1.00</td><td>0.80</td><td>0.38</td></tr>
+            </tbody>
+          </table>
+          <p>Both use founder variation <code>±0.12</code>, with heat preference using half that width. Every founder starts with energy <code>5.0</code>.</p>
+
+          <h3>Founder construction</h3>
+          <pre><code>for each founder in a species:
+  body  = vary_and_clamp(blueprint genes)
+  brain = draw 117 independent values from uniform[-1, 1)
+  genome = immutable parentless genome with fresh global GenomeId
+  tile = uniformly selected cached land tile
+  position = tile origin + uniform[0,1) jitter on x and y
+  organism = fresh global OrganismId, energy 5, age 0</code></pre>
+
+          <table>
+            <thead><tr><th>Physical gene</th><th>Effect</th><th>Viable bounds</th></tr></thead>
+            <tbody>
+              <tr><td>speed</td><td>Step length; movement cost rises quadratically</td><td>0.1 … 3.0</td></tr>
+              <tr><td>size</td><td>Intake, lifespan, basal cost and breeding threshold</td><td>0.2 … 3.0</td></tr>
+              <tr><td>metabolism</td><td>Intake and cost rise; lifespan falls</td><td>0.2 … 2.5</td></tr>
+              <tr><td>heat_pref</td><td>Temperature at which harvested food is fully useful</td><td>0.0 … 1.0</td></tr>
+            </tbody>
+          </table>
+
+          <p>A genome contains its unique ID, up to two parent genome IDs, the four physical genes, and all neural values. It is immutable during life. The species owns one population, and mate selection never leaves that population; reproductive isolation follows from ownership.</p>
+          <span class="source">crates/simulation/src/run.rs:11-40 · crates/ecology/src/species.rs:9-10,26-96 · crates/genetics/src/genome.rs:7-11,42-89,92-145</span>
+        </section>
+
+        <section id="brain">
+          <span class="section-no">05 / Neural behavior</span>
+          <h2>The inherited 8 → 8 → 5 policy</h2>
+          <p>Every organism carries its own fixed-topology feed-forward network. Only its numeric weights and biases evolve. It has no memory beyond observations supplied by the organism state, no training pass, no gradients, and no weight updates during life.</p>
+
+          <div class="brain-grid" aria-label="Neural network layers">
+            <div class="layer">
+              <strong>8 observations</strong>
+              <ol><li>energy</li><li>maturity</li><li>food here</li><li>food next</li><li>climate fit</li><li>kin density</li><li>rival density</li><li>momentum</li></ol>
+            </div>
+            <div class="arrow">→</div>
+            <div class="layer">
+              <strong>8 hidden neurons</strong>
+              <p>64 weights + 8 biases<br><code>tanh(Wx + b)</code></p>
+            </div>
+            <div class="arrow">→</div>
+            <div class="layer">
+              <strong>5 outputs</strong>
+              <ol><li>east / west</li><li>north / south</li><li>seek food</li><li>breed</li><li>rest</li></ol>
+              <p>40 weights + 5 biases</p>
+            </div>
+          </div>
+
+          <div class="formula">hidden[h] = tanh(b[h] + Σᵢ W₁[h,i] · input[i])</div>
+          <div class="formula">output[o] = tanh(b[8+o] + Σₕ W₂[o,h] · hidden[h])</div>
+          <p>The brain has <strong>104 weights + 13 biases = 117 inherited neural genes</strong>. Founder values are uniform in <code>[-1,1)</code>; mutation chains are clamped to <code>[-4,4]</code>. Both layers use <code>tanh</code>, so every raw output lies in <code>[-1,1]</code>.</p>
+
+          <h3>What the network actually sees</h3>
+          <table>
+            <thead><tr><th>#</th><th>Observation</th><th>Normalization / meaning</th></tr></thead>
+            <tbody>
+              <tr><td>0</td><td>Energy</td><td><code>E / (E + 8·size)</code>; 0.5 exactly at breeding threshold</td></tr>
+              <tr><td>1</td><td>Maturity</td><td><code>clamp(age / lifespan, 0, 1)</code></td></tr>
+              <tr><td>2</td><td>Food here</td><td>Standing resource on current tile</td></tr>
+              <tr><td>3</td><td>Food next</td><td>Most raw food on a reachable cardinal probe</td></tr>
+              <tr><td>4</td><td>Climate</td><td>Local climate fit</td></tr>
+              <tr><td>5</td><td>Kin</td><td><code>same / (same + 4)</code>; includes itself</td></tr>
+              <tr><td>6</td><td>Rivals</td><td><code>other / (other + 4)</code></td></tr>
+              <tr><td>7</td><td>Momentum</td><td><code>clamp(last_move / speed, 0, 1)</code></td></tr>
+            </tbody>
+          </table>
+          <p>The occupancy inputs are a start-of-tick snapshot. The network cannot see global population, who is winning, future food, another organism’s genome, or any fitness score.</p>
+
+          <h3>From output to movement</h3>
+          <p>The first two outputs remain signed headings. Seek, breed and rest are remapped from <code>[-1,1]</code> to <code>[0,1]</code>. Food seeking blends the network’s own heading with a scripted local food gradient:</p>
+          <div class="formula">heading = (1 − seek) · policy_heading + seek · food_gradient</div>
+          <div class="formula">effort = (1 − rest) · min(|heading|, 1)</div>
+          <div class="formula">stride = normalize(heading) · speed · effort</div>
+          <p>The gradient checks east, west, south and north one speed-length away. It chooses the first strictly better reachable tile according to <code>resource × climate_fit</code>. The network controls how strongly to trust this gradient.</p>
+
+          <div class="truth">
+            <div>
+              <h3>Inherited and evolvable</h3>
+              <ul>
+                <li>Four physical gene values</li>
+                <li>All 117 weights and biases</li>
+                <li>Directional preference</li>
+                <li>Food-seeking pressure</li>
+                <li>Breeding and resting pressure</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Scripted and fixed</h3>
+              <ul>
+                <li>Which eight observations exist</li>
+                <li>Food-gradient calculation</li>
+                <li>Energy costs and climate penalty</li>
+                <li>Terrain collision and wander</li>
+                <li>Breeding eligibility and death</li>
+              </ul>
+            </div>
+          </div>
+          <span class="source">crates/genetics/src/neural_genome.rs:10-94 · crates/ecology/src/behavior/observations.rs:15-153 · crates/ecology/src/behavior/actions.rs:12-73</span>
+        </section>
+
+        <section id="life">
+          <span class="section-no">06 / One life tick</span>
+          <h2>Observe, decide, pay the bill</h2>
+          <pre><code>live_one_tick(organism):
+  1. scan four reachable cardinal destinations
+  2. build eight normalized observations
+  3. run inherited neural network once
+  4. decode five outputs into intent
+  5. constrain intent to a phenotype-limited stride
+  6. add independent x/y wander in [-0.3, 0.3)
+  7. resolve destination against passable terrain
+  8. harvest shared food at the destination
+  9. energy += climate-adjusted food - upkeep
+ 10. age += 1</code></pre>
+
+          <h3>Terrain resolution</h3>
+          <p>The engine tries the full destination, then x-only movement, then y-only movement, then staying still. This makes organisms slide along shorelines. A blocked attempt still pays the intended effort cost.</p>
+
+          <h3>Energy economy</h3>
+          <div class="grid-2">
+            <div class="card">
+              <h3>Costs</h3>
+              <div class="formula">basal = 0.05 · metabolism · size</div>
+              <div class="formula">full_move = 0.05 · metabolism · 0.4 · speed²</div>
+              <div class="formula">upkeep = basal + full_move · effort</div>
+            </div>
+            <div class="card">
+              <h3>Body consequences</h3>
+              <div class="formula">lifespan = floor(60 · size / metabolism)</div>
+              <div class="formula">breed threshold = 8 · size</div>
+              <div class="formula">intake limit = 0.9 · size · metabolism</div>
+            </div>
+          </div>
+
+          <div class="callout warning">
+            <strong>Behavioral nuance:</strong> rest suppresses policy stride, but wander is added afterward. A fully resting organism can drift slightly while paying no movement component. Actual wander distance is not included in movement upkeep.
+          </div>
+          <p>An organism dies when <code>energy ≤ 0</code> or <code>age ≥ lifespan</code>. There is no predation or combat in the current model. Species interact through food depletion and through rival-density observations.</p>
+          <span class="source">crates/ecology/src/behavior/mod.rs:29-109 · crates/ecology/src/phenotype.rs:13-57 · crates/ecology/src/interactions.rs:1-18</span>
+        </section>
+
+        <section id="reproduction">
+          <span class="section-no">07 / Reproduction and evolution</span>
+          <h2>No score. Just descendants.</h2>
+          <p>An organism becomes eligible only when its energy is strictly above <code>8 × size</code>. Its neural breed output is interpreted as a per-tick probability. Passing that test asks the same-species population for a uniformly selected mate. With one organism, self-mating is allowed; with multiple organisms, self is excluded. Distance, age, energy and the mate’s own willingness do not matter.</p>
+
+          <pre><code>conceive(parent, breed_pressure):
+  reject unless parent.energy &gt; 8·size
+  reject unless random[0,1) &lt; breed_pressure
+  mate = uniform member of same species, excluding parent when possible
+
+  child body  = mutate(uniform_crossover(parent body, mate body))
+  child brain = mutate(uniform_crossover(each of 117 neural values))
+  child energy reservation = 0.5 · parent energy
+  remember both parent GenomeIds
+
+after all organisms have acted:
+  admit queued births fairly across species up to safety ceiling
+  mint IDs, place child at parent position
+  transfer reserved energy from parent to child</code></pre>
+
+          <h3>Physical mutation</h3>
+          <p>Each physical trait mutates on every birth by bounded, approximately normal noise. Speed, size and metabolism receive <code>normal × 0.08</code>; heat preference receives <code>normal × 0.04</code>. The function called <code>MUTATION_RATE</code> is a step scale here, not an 8% mutation probability.</p>
+
+          <h3>Brain mutation</h3>
+          <table>
+            <thead><tr><th>Per neural value</th><th>Probability</th><th>Change</th></tr></thead>
+            <tbody>
+              <tr><td>Unchanged</td><td>95.0%</td><td>Keep crossed-over parental value</td></tr>
+              <tr><td>Small mutation</td><td>4.5%</td><td>Add <code>normal × 0.15</code></td></tr>
+              <tr><td>Large mutation</td><td>0.5%</td><td>Add <code>normal × 0.8</code></td></tr>
+            </tbody>
+          </table>
+          <p>The project’s <code>normal()</code> is a deterministic, bounded Irwin–Hall approximation: <code>2 × (U₁ + U₂ + U₃ − 1.5)</code>. It has mean 0, standard deviation near 1, and support <code>[-3,3)</code>.</p>
+
+          <div class="callout">
+            <strong>What selection means here:</strong> alleles spread only because their carriers survive and produce descendants. Behavioral reports and the final “winner” calculation are descriptive and never feed back into the world.
+          </div>
+          <span class="source">crates/ecology/src/behavior/mod.rs:111-169 · crates/ecology/src/population.rs:39-53 · crates/genetics/src/recombination.rs:6-35 · crates/genetics/src/mutation.rs:8-41 · crates/core/src/lib.rs:39-42</span>
+        </section>
+
+        <section id="cpu">
+          <span class="section-no">08 / CPU execution</span>
+          <h2>The reference engine is deterministic and single-threaded</h2>
+          <p><code>CpuEngine</code> owns scheduling scratch space and three independent random concerns: visit order, behavior wander, and reproduction. The canonical <code>SimulationState</code> owns the world, ordered species, simulation time and global ID allocators.</p>
+
+          <h3>One complete CPU tick</h3>
+          <pre><code>tick(state, epoch, tick):
+  handles = all (species_index, organism_index) alive at tick start
+  Fisher–Yates shuffle handles using seed derived from (order_seed, epoch, tick)
+  occupancy = snapshot every organism's current tile by species
+  queued_births = empty queues per species
+
+  for handle in shuffled order:
+    copy current organism
+    next, behavior = live_one_tick(current, mutable shared world, occupancy)
+    record descriptive behavior
+    maybe queue same-species conception
+    write next organism back to its stable population slot
+
+  admit queued births round-robin across species until safety ceiling
+  stably remove dead organisms and count deaths
+  synchronously regrow every resource tile
+  set tick counter to tick + 1</code></pre>
+
+          <h3>Why snapshot some data but not food?</h3>
+          <div class="grid-2">
+            <div class="card">
+              <h3>Occupancy is snapshotted</h3>
+              <p>Everyone sees the same start-of-tick crowd distribution. Visit order cannot distort kin and rival observations.</p>
+            </div>
+            <div class="card">
+              <h3>Food is live</h3>
+              <p>Earlier visitors consume it immediately. That first-come depletion is the actual competition, so it remains sequential.</p>
+            </div>
+          </div>
+
+          <p>Newborns are appended after visitation and cannot act or mate in their birth tick. Death is removed after births, with stable retention. The safety ceiling protects memory; it is not ecological carrying capacity, and reports disclose when it binds.</p>
+
+          <h3>Epoch and reporting</h3>
+          <p><code>advance_epoch</code> repeats the tick algorithm exactly <code>ticks_per_epoch</code> times and accumulates per-species births, deaths and behavior. The runner, not the engine, increments the epoch counter. Replay hashes stable ordered report values, including population, biomass, mean genes and behavioral summaries.</p>
+          <span class="source">crates/simulation/src/cpu.rs:21-50,57-192 · crates/simulation/src/epoch.rs:25-56,85-125 · crates/replay/src/lib.rs:21-50</span>
+        </section>
+
+        <section id="gpu">
+          <span class="section-no">09 / GPU execution</span>
+          <h2>Rendering uses a GPU. Simulation does not. Yet.</h2>
+          <div class="truth">
+            <div>
+              <h3>Implemented now</h3>
+              <ul>
+                <li>Single-threaded Rust <code>CpuEngine</code></li>
+                <li>CPU world, populations and neural inference</li>
+                <li>WebGL2 browser rendering</li>
+                <li>CPU extraction of sampled render snapshots</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Not implemented</h3>
+              <ul>
+                <li>No <code>wgpu</code> simulation dependency</li>
+                <li>No compute shaders or kernels</li>
+                <li>No device buffers or transfers</li>
+                <li>No GPU <code>EpochEngine</code></li>
+              </ul>
+            </div>
+          </div>
+
+          <p><code>crates/gpu/src/lib.rs</code> is eight lines and intentionally empty. The project waits until profiling shows that the CPU epoch loop is the bottleneck worth moving. WebGL2 draws the world in the browser, but it does not calculate ecology.</p>
+
+          <h3>How a future compute backend fits</h3>
+          <p>The seam already exists: implement <code>EpochEngine</code>, preserve the nine-step tick contract, and pass <code>conformance::verify_engine</code>. A backend may own scheduling, storage, parallelism and random streams. It must preserve ecological meaning, immutable genomes, reproductive isolation, accounting, bounds, and deterministic replay within that backend.</p>
+
+          <div class="pipeline" aria-label="Potential future GPU execution pipeline">
+            <div class="step"><b>Pack</b><small>Contiguous world and organism buffers</small></div>
+            <div class="step"><b>Snapshot</b><small>Occupancy and tick-start population</small></div>
+            <div class="step"><b>Compute</b><small>Observation + 8→8→5 inference</small></div>
+            <div class="step"><b>Resolve</b><small>Deterministic food, births and deaths</small></div>
+            <div class="step"><b>Report</b><small>Synchronize canonical results</small></div>
+          </div>
+
+          <div class="callout warning">
+            <strong>The hard GPU problem is not the neural matrix math.</strong> Parallel organisms contend for the same food tiles, births change variable-length populations, and visit order is semantically observable through first-come harvesting. A correct backend must define deterministic conflict resolution rather than simply launch one independent thread per organism.
+          </div>
+
+          <p>The flat row-major world fields and flat neural arrays are device-friendly. However, the present <code>EpochEngine</code> takes <code>&amp;mut SimulationState</code>, so a truly device-resident backend may require revisiting ownership and synchronization without changing reports or application behavior.</p>
+          <span class="source">crates/gpu/src/lib.rs:1-8 · crates/gpu/Cargo.toml:1-7 · crates/simulation/src/epoch.rs:75-125 · crates/simulation/src/render.rs:1-13 · README.md:86-89,122-143</span>
+        </section>
+
+        <section id="determinism">
+          <span class="section-no">10 / Determinism</span>
+          <h2>Random, but reproducible</h2>
+          <p>The guarantee is <strong>same seed + same config + same engine = same run</strong>. It is not a promise that a future GPU backend must be bit-identical to the CPU backend.</p>
+
+          <div class="grid-3">
+            <div class="card"><h3>Stable RNG</h3><p>Dependency-free SplitMix64, wrapping integer arithmetic, and 24-bit uniform <code>f32</code> values.</p></div>
+            <div class="card"><h3>Named streams</h3><p>World, species bodies, founder brains, order, behavior and reproduction cannot silently shift one another.</p></div>
+            <div class="card"><h3>Stable order</h3><p>Ordered vectors, fixed probe order, stable death retention and ordered reports.</p></div>
+          </div>
+
+          <pre><code>run seed
+├── "world"
+├── "species:&lt;name&gt;"       founder bodies and placement
+├── "brain:&lt;name&gt;"         founder neural values
+└── "engine"
+    ├── "order"            re-derived with epoch + tick
+    ├── "behavior"         wander
+    └── "reproduction"     attempts, mates, crossover, mutation</code></pre>
+
+          <p>Snapshots remove accidental update-order effects where they are not part of the model: occupancy is read consistently across a tick, and regrowth reads one saved fullness field. Food remains ordered by design. Conformance tests engines with zero through three species and check accounting, IDs, genome immutability, ancestry isolation, world bounds, neural bounds, policy execution and repeated-run determinism.</p>
+          <span class="source">crates/core/src/lib.rs:5-71 · crates/simulation/src/cpu.rs:39-70 · crates/simulation/src/conformance.rs:23-59,153-294,314-395</span>
+        </section>
+
+        <section id="complexity">
+          <span class="section-no">11 / Cost model</span>
+          <h2>Where CPU time goes</h2>
+          <p>Let <code>N</code> be organisms, <code>W = width × height</code> tiles, <code>S</code> species, and <code>B</code> successful conceptions. The network topology is fixed, so its 104 multiply-accumulates and 13 <code>tanh</code> calls are constant work per organism.</p>
+
+          <table>
+            <thead><tr><th>Tick phase</th><th>Approximate time</th><th>Extra memory</th></tr></thead>
+            <tbody>
+              <tr><td>Build and shuffle handles</td><td>O(N)</td><td>O(N)</td></tr>
+              <tr><td>Clear / rebuild occupancy</td><td>O(SW + N)</td><td>O(SW)</td></tr>
+              <tr><td>Observe + neural policy + life</td><td>O(NS) with rival counting</td><td>O(1) per visit</td></tr>
+              <tr><td>Genetic conception</td><td>O(117B)</td><td>O(B)</td></tr>
+              <tr><td>Birth / death pass</td><td>O(N + B)</td><td>population growth</td></tr>
+              <tr><td>Resource regrowth</td><td>O(W)</td><td>O(W) fullness scratch</td></tr>
+            </tbody>
+          </table>
+
+          <div class="metrics">
+            <div class="metric"><strong>24.5 s</strong><span>default benchmark run</span></div>
+            <div class="metric"><strong>~5,100</strong><span>peak organisms</span></div>
+            <div class="metric"><strong>~2.0M</strong><span>organism-ticks / second</span></div>
+            <div class="metric"><strong>13 tanh</strong><span>per organism-tick</span></div>
+          </div>
+          <p>The recorded default benchmark is 10,000 ticks on 16,384 tiles. Roughly half of the pre-dispersal runtime was the 13 <code>tanh</code> calls in each policy pass. Resource dispersal adds two world-sized passes and four neighbor reads per tile per tick.</p>
+          <span class="source">benchmarks/README.md:8-49,59-70 · crates/genetics/src/neural_genome.rs:63-94</span>
+        </section>
+
+        <section id="behaviors">
+          <span class="section-no">12 / Behavioral interpretation</span>
+          <h2>What can emerge from these rules?</h2>
+          <p>The network does not select named behaviors such as “graze the coast” or “avoid crowds.” It maps correlated local signals to tendencies. Natural selection can make combinations repeat reliably enough that observers name them.</p>
+
+          <div class="grid-2">
+            <div class="card">
+              <h3>Foraging specialist</h3>
+              <p>High seek output makes movement follow the best climate-adjusted cardinal food gradient. It can find food efficiently but may pay movement costs and join crowded patches.</p>
+            </div>
+            <div class="card">
+              <h3>Energy conserver</h3>
+              <p>High rest pressure cuts stride effort and therefore movement cost. It can survive sparse periods, but may fail to reach regrowing edges.</p>
+            </div>
+            <div class="card">
+              <h3>Disperser</h3>
+              <p>Low seek with persistent signed headings follows the network’s own direction instead of local food. This may discover less-contested patches.</p>
+            </div>
+            <div class="card">
+              <h3>Opportunistic breeder</h3>
+              <p>A brain can connect high energy or maturity to breeding pressure. Eligibility still requires the fixed energy threshold.</p>
+            </div>
+            <div class="card">
+              <h3>Crowd response</h3>
+              <p>Kin and rival inputs can change headings, seeking, rest or breeding. Avoidance is possible, but it is not hard-coded.</p>
+            </div>
+            <div class="card">
+              <h3>Climate niche</h3>
+              <p>Heat preference changes food value while the brain sees current climate fit. Body evolution and policy evolution can jointly concentrate a lineage by latitude.</p>
+            </div>
+          </div>
+
+          <h3>Tradeoffs that selection “sees”</h3>
+          <ul>
+            <li><strong>Speed:</strong> reaches farther, but movement cost grows with speed squared.</li>
+            <li><strong>Metabolism:</strong> can increase intake, but raises costs and shortens lifespan.</li>
+            <li><strong>Size:</strong> raises intake and lifespan, but also basal cost and breeding threshold.</li>
+            <li><strong>Food seeking:</strong> exploits immediate gradients, but may converge with competitors.</li>
+            <li><strong>Rest:</strong> saves movement energy, but sacrifices directed displacement.</li>
+            <li><strong>Breeding:</strong> creates descendants, but transfers half of the breeder’s energy.</li>
+          </ul>
+
+          <div class="callout warning">
+            <strong>Do not over-interpret telemetry.</strong> Mean movement, food seeking, reproduction tendency, rest tendency, competitor exposure and brain drift describe what happened. They are not objectives. “Winner” is only the greatest final-to-initial population ratio, not a health or intelligence score.
+          </div>
+          <span class="source">crates/ecology/src/behavior/actions.rs:75-145 · crates/ecology/src/phenotype.rs:6-57 · crates/simulation/src/statistics.rs:132-210 · README.md:33-52</span>
+        </section>
+
+        <section id="sources">
+          <span class="section-no">13 / Source map</span>
+          <h2>Where to read next</h2>
+          <table>
+            <thead><tr><th>Question</th><th>Primary source</th></tr></thead>
+            <tbody>
+              <tr><td>How does deterministic randomness work?</td><td><code>crates/core/src/lib.rs</code></td></tr>
+              <tr><td>How is terrain generated?</td><td><code>crates/world/src/terrain.rs</code></td></tr>
+              <tr><td>How do resources regrow?</td><td><code>crates/world/src/resources.rs</code></td></tr>
+              <tr><td>What does a body gene do?</td><td><code>crates/ecology/src/phenotype.rs</code></td></tr>
+              <tr><td>What can the brain observe?</td><td><code>crates/ecology/src/behavior/observations.rs</code></td></tr>
+              <tr><td>How are outputs constrained?</td><td><code>crates/ecology/src/behavior/actions.rs</code></td></tr>
+              <tr><td>How is one organism tick executed?</td><td><code>crates/ecology/src/behavior/mod.rs</code></td></tr>
+              <tr><td>How does the neural forward pass work?</td><td><code>crates/genetics/src/neural_genome.rs</code></td></tr>
+              <tr><td>How do crossover and mutation work?</td><td><code>crates/genetics/src/recombination.rs</code>, <code>mutation.rs</code></td></tr>
+              <tr><td>How does CPU scheduling work?</td><td><code>crates/simulation/src/cpu.rs</code></td></tr>
+              <tr><td>What must any backend preserve?</td><td><code>crates/simulation/src/epoch.rs</code>, <code>conformance.rs</code></td></tr>
+              <tr><td>What GPU simulation exists?</td><td><code>crates/gpu/src/lib.rs</code> (currently none)</td></tr>
+            </tbody>
+          </table>
+
+          <h3>Compact glossary</h3>
+          <p><strong>Tick:</strong> one atomic update of all current organisms and the world. <strong>Epoch:</strong> a configurable batch of ticks, not a generation. <strong>Genome:</strong> immutable body genes, neural values and ancestry IDs. <strong>Phenotype:</strong> costs and capabilities derived from body genes. <strong>Intent:</strong> five tendencies emitted by the network. <strong>Act:</strong> descriptive record of what happened. <strong>Engine:</strong> backend that schedules the canonical ecological rules.</p>
+        </section>
+
+        <footer>
+          <p>Generated from the repository state on 2026-08-28. This report explains current behavior; source code remains authoritative.</p>
+        </footer>
+      </article>
+    </main>
+  </div>
+</body>
+</html>

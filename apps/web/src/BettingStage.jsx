@@ -37,11 +37,9 @@ export default function BettingStage({ market, form }) {
 
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
         <div className="w-80 max-w-full animate-[outcome-in_500ms_ease-out] text-center text-xs motion-reduce:animate-none">
-          <p className="text-sm text-neutral-100">the next world is sealed</p>
-          <p className="mt-1 text-neutral-500">
-            its seed is committed to now and revealed when betting closes. nobody
-            can run it ahead - and nothing behind this belongs to it.
-          </p>
+          <p className="text-sm text-neutral-100">world #{market.market_id} is sealed</p>
+          {/* the seal itself. it says nothing to read and everything to check:
+              the same hash turns up beside the seed once the market locks. */}
           <p className="mt-1 break-all text-neutral-600">{market.commitment.slice(0, 24)}...</p>
 
           {form.length > 0 && (
