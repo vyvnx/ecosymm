@@ -250,3 +250,59 @@ fn result(id: u32, initial: usize, final_population: usize) -> SpeciesResult {
         brain_drift: 0.0,
     }
 }
+
+/// the frozen thresholds have to still leave a legible feed.
+///
+/// they were calibrated against recorded runs, and the ecology under them has
+/// changed three times since - directional perception, lifetime memory, local
+/// mating. what matters is not the raw divergence, which is high in these runs
+/// simply because most of a run is one long boom and population is *supposed*
+/// to be loud during a boom. what matters is what comes out the other side of
+/// the dwell, the hysteresis and the cooldown: enough to say something, few
+/// enough to read.
+///
+/// the Welford numbers behind it are printed, not asserted on. they are the
+/// evidence for arguing `Feature::thresholds` and they are calibration output
+/// only: nothing reads them back into a detector.
+#[test]
+fn the_frozen_thresholds_still_match_what_a_run_actually_does() {
+    use ecosym_core::SimConfig;
+    use ecosym_simulation::Simulation;
+
+    let cfg = SimConfig {
+        seed: 1234,
+        population_per_species: 150,
+        epochs: 80,
+        width: 64,
+        height: 64,
+        ticks_per_epoch: 15,
+    };
+    let mut sim = Simulation::cpu(cfg.clone());
+    let mut watcher = Telemetry::start(1, &names());
+    let mut fired = 0;
+    for _ in 0..cfg.epochs {
+        fired += watcher.push(&sim.advance_epoch().expect("cpu engine cannot fail")).len();
+    }
+
+    println!("fired {fired} events over {} epochs", cfg.epochs);
+    for (label, species, c) in watcher.calibration() {
+        if c.count < 20 {
+            continue;
+        }
+        println!("{label:20} {species:?} n={} mean={:.3} sd={:.3}", c.count, c.mean, c.deviation());
+        assert!(
+            c.mean.is_finite() && c.deviation().is_finite(),
+            "{label}/{species:?}: calibration is not finite"
+        );
+    }
+
+    // one every six epochs at the time of writing. the band is wide because it
+    // is guarding against a broken instrument, not pinning a number: silence
+    // means the thresholds have drifted out of reach of the world, and one an
+    // epoch means they have drifted into the noise.
+    assert!(
+        (5..=cfg.epochs / 2).contains(&fired),
+        "{fired} events over {} epochs is not a readable feed",
+        cfg.epochs
+    );
+}

@@ -372,8 +372,13 @@ mod tests {
                 (to.reproduction - from.reproduction).abs(),
                 (to.resting - from.resting).abs(),
             ];
+            // 0.05 of a 0..1 tendency. the bar is not 0.1 any more because
+            // how big a behaviour change *looks* depends on the activation:
+            // softsign saturates slowly, so the same weight drift shows as a
+            // smaller output move than `tanh` gave. `brain_drift` below is the
+            // activation-independent half of the same claim.
             assert!(
-                moved.iter().any(|d| *d > 0.1),
+                moved.iter().any(|d| *d > 0.05),
                 "{}: behaviour barely moved, {from:?} -> {to:?}",
                 s.name
             );
@@ -445,18 +450,18 @@ mod tests {
         let twins = twin_blueprints();
         assert_eq!(twins[0].genes, twins[1].genes, "the twins are not physically identical");
 
-        // a wider world and a longer epoch than the rest of the suite uses.
+        // the default world, not the small one the rest of the suite uses.
         // mating is local now, so a founding colony has to be dense enough to
         // still find itself after its own founders die of old age - and two
         // identical species sharing one world halve each other's mate density,
         // which makes this the strictest density test here. at 300 founders on
-        // 64x64 both twins go extinct in the trough and the comparison this
-        // test exists for has nothing left to compare.
+        // 64x64, or 500 on 96x96, both twins go extinct in the trough and the
+        // comparison this test exists for has nothing left to compare.
         let cfg = SimConfig {
             population_per_species: 500,
             epochs: 40,
-            width: 96,
-            height: 96,
+            width: 128,
+            height: 128,
             ticks_per_epoch: 20,
             ..small()
         };

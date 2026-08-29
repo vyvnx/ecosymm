@@ -440,6 +440,11 @@ mod tests {
         assert_eq!(walkable(&world, (x, y), (sx, sy)), (x, y));
     }
 
+    /// what an output bias has to be for `softsign` to answer +-1 to within a
+    /// thousandth. it saturates far more slowly than `tanh` did, where 4.0 was
+    /// already 0.9993.
+    const SATURATED: f32 = 1000.0;
+
     /// a brain with no hidden layer contribution and fixed output biases, so a
     /// movement test can say exactly what the policy asked for
     fn fixed_intent(output_biases: [f32; ecosym_genetics::OUTPUTS]) -> NeuralGenome {
@@ -473,7 +478,7 @@ mod tests {
         let mut world = World::generate(1234, 32, 32);
         let (x, y) = inland(&world);
         let genes = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
-        let resting = subject(fixed_intent([0.0, 0.0, 0.0, 4.0]), x, y);
+        let resting = subject(fixed_intent([0.0, 0.0, 0.0, SATURATED]), x, y);
 
         let (paid, ended) = tick_bill(&mut world, &resting);
         assert!(
@@ -507,7 +512,7 @@ mod tests {
         let mut world = World::generate(1234, 32, 32);
         let (x, y) = inland(&world);
         let genes = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
-        let walker = subject(fixed_intent([4.0, 4.0, 0.0, -4.0]), x, y);
+        let walker = subject(fixed_intent([SATURATED, SATURATED, 0.0, -SATURATED]), x, y);
 
         let (paid, ended) = tick_bill(&mut world, &walker);
         assert_ne!(ended, (x, y));
@@ -537,7 +542,7 @@ mod tests {
 
         let genes = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
         // hard north-east, no seeking, no rest: the wander cannot flip either sign
-        let blocked = subject(fixed_intent([4.0, 4.0, 0.0, -4.0]), x, y);
+        let blocked = subject(fixed_intent([SATURATED, SATURATED, 0.0, -SATURATED]), x, y);
 
         let (paid, ended) = tick_bill(&mut world, &blocked);
         assert_eq!(ended, (x, y), "the shore let it through, so this test proves nothing");

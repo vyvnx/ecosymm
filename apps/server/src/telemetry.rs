@@ -157,6 +157,26 @@ impl Feature {
     /// these are hypotheses calibrated against recorded runs, not knobs to be
     /// tuned until the feed reads nicely - `DETECTOR_VERSION` moves when they
     /// do, so an old event can still be read against the rules that made it.
+    ///
+    /// re-checked against the ecology after directional perception, lifetime
+    /// memory and local mating, on 200 founders over 120 epochs of a 96x96
+    /// world (the test runs a cheaper shape of the same thing). mean absolute
+    /// divergence per epoch, both species:
+    ///
+    /// ```text
+    /// population 0.36 - 0.54   birth rate 0.35 - 0.46   death rate 0.58 - 1.16
+    /// biomass          0.10    energy     0.07          movement   0.09 - 0.12
+    /// tracking   0.13 - 0.17   breeding   0.02 - 0.10   resting    0.03 - 0.16
+    /// exposure   0.28 - 0.38   metabolism 0.13 - 0.17   speed      0.02 - 0.06
+    /// heat pref  0.03 - 0.05
+    /// ```
+    ///
+    /// population, the two rates and metabolism sit above their own entry
+    /// thresholds on an average epoch, and they are **left alone**: most of a
+    /// run is one long boom, and a population channel that stayed quiet through
+    /// a boom would be the broken one. the dwell, hysteresis and cooldown are
+    /// what turn that into a feed - 21 events over those 120 epochs - and the
+    /// feed rate is what the test guards.
     fn thresholds(self) -> (f32, f32, f32) {
         match self {
             Feature::Population => (0.25, 0.10, 10.0),
@@ -184,6 +204,46 @@ impl Feature {
     }
 }
 
+/// running count, mean and variance of one channel's divergence, in constant
+/// space.
+///
+/// **calibration only.** it never reaches `Detector::update` and never moves a
+/// threshold: a threshold that adapts to the run it is watching stops being a
+/// statement about the world and becomes a statement about itself, and an event
+/// fired under one would not mean the same thing twice. this is here so the
+/// frozen numbers in `Feature::thresholds` can be re-argued against recorded
+/// runs after the ecology changes under them, which it has three times.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Calibration {
+    pub count: u64,
+    pub mean: f32,
+    /// sum of squared deviations. divide by `count` for the variance.
+    sum_squares: f32,
+}
+
+impl Calibration {
+    fn record(&mut self, v: f32) {
+        self.count += 1;
+        let delta = v - self.mean;
+        self.mean += delta / self.count as f32;
+        self.sum_squares += delta * (v - self.mean);
+    }
+
+    #[cfg(test)]
+    pub fn variance(&self) -> f32 {
+        if self.count < 2 {
+            0.0
+        } else {
+            self.sum_squares / self.count as f32
+        }
+    }
+
+    #[cfg(test)]
+    pub fn deviation(&self) -> f32 {
+        self.variance().sqrt()
+    }
+}
+
 /// one channel's memory: two exponentially weighted means and the hysteresis
 /// that stops the gap between them chattering.
 #[derive(Clone, Debug)]
@@ -196,6 +256,9 @@ struct Detector {
     active: bool,
     dwell: u32,
     quiet_until: usize,
+    /// what the gap has been doing, for offline calibration. read, never read
+    /// *back*.
+    calibration: Calibration,
 }
 
 /// what the gap looked like when it crossed
@@ -216,6 +279,7 @@ impl Detector {
             active: false,
             dwell: 0,
             quiet_until: 0,
+            calibration: Calibration::default(),
         }
     }
 
@@ -235,6 +299,7 @@ impl Detector {
         let (high, release, floor) = self.feature.thresholds();
         let scale = self.slow.abs().max(floor);
         let divergence = (self.fast - self.slow) / scale;
+        self.calibration.record(divergence.abs());
 
         // active is the released half of the hysteresis: nothing new is said
         // until the gap has closed again
@@ -327,6 +392,23 @@ impl Telemetry {
 
     /// one completed epoch. returns the events it produced, already ordered and
     /// already folded into the ring.
+    /// what every channel's divergence has been doing over this run, in fixed
+    /// detector order: `(label, species, calibration)`.
+    ///
+    /// descriptive output. it exists so `Feature::thresholds` can be argued
+    /// about against runs instead of guessed at, and nothing reads it back into
+    /// the detectors - see `Calibration`.
+    ///
+    /// test-gated because the calibration check is the only thing that reads
+    /// it. it earns a wire shape the day someone wants these numbers off a live
+    /// server, and not before.
+    #[cfg(test)]
+    pub fn calibration(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, Option<u32>, Calibration)> + '_ {
+        self.detectors.iter().map(|d| (d.feature.label(), d.species, d.calibration))
+    }
+
     pub fn push(&mut self, report: &EpochReport) -> Vec<Event> {
         let mut pending = Vec::new();
         if self.initial.iter().all(|v| *v == 0.0) {

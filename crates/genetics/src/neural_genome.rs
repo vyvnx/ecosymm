@@ -79,8 +79,9 @@ impl NeuralGenome {
         brain
     }
 
-    /// one forward pass. `tanh` on both layers, so every output is in -1..1 and
-    /// the caller never has to defend against an unbounded tendency.
+    /// one forward pass. `softsign(x) = x / (1 + |x|)` on both layers, so every
+    /// output is in -1..1 and the caller never has to defend against an
+    /// unbounded tendency.
     ///
     /// `hidden` is read as last tick's activations and overwritten with this
     /// tick's. the whole previous vector is read before any of it is replaced -
@@ -91,12 +92,17 @@ impl NeuralGenome {
     /// state is what it has seen; no gradient, no reward and no write ever
     /// reaches the genome.
     ///
-    /// ponytail: `tanh` is 12 libm calls per organism-tick and about half the
-    /// wall clock of a default run (21.6s against 10.0s measured with the
-    /// softsign `x / (1 + |x|)`, which evolves just as well and is bit-identical
-    /// across platforms). kept because it is the standard shape and the run is
-    /// fast enough; swap it here, in one line, if the tick loop ever becomes
-    /// the thing worth optimising - and re-record `benchmarks/` when you do.
+    /// `tanh` was here until recurrence made the policy the expensive half of
+    /// the tick: 12 libm calls per organism-tick, and about half the wall clock
+    /// of a default run. softsign is 1.25 - 1.42x faster over six seeds, evolves
+    /// the same trait trajectories, and is bit-identical across platforms -
+    /// which for a project whose first rule is that a seed reproduces a digest
+    /// is worth having on its own. the gate ADR 0009 set is in
+    /// `experiments/2026-08-29-softsign-pays-for-the-recurrence`.
+    ///
+    /// it is not the same function as `tanh`: it saturates far more slowly, so
+    /// a weight has to be bigger to pin an output. that is a different search
+    /// landscape, not a worse one, and the multi-seed run is what says so.
     pub fn forward(&self, inputs: &[f32; INPUTS], hidden: &mut [f32; HIDDEN]) -> [f32; OUTPUTS] {
         let mut next = [0.0f32; HIDDEN];
         for (h, neuron) in next.iter_mut().enumerate() {
@@ -108,7 +114,7 @@ impl NeuralGenome {
             for (w, m) in row.iter().zip(hidden.iter()) {
                 sum += w * m;
             }
-            *neuron = sum.tanh();
+            *neuron = sum / (1.0 + sum.abs());
         }
         *hidden = next;
 
@@ -119,7 +125,7 @@ impl NeuralGenome {
             for (w, h) in row.iter().zip(hidden.iter()) {
                 sum += w * h;
             }
-            *neuron = sum.tanh();
+            *neuron = sum / (1.0 + sum.abs());
         }
         outputs
     }
@@ -245,9 +251,12 @@ mod tests {
     #[test]
     fn a_zero_brain_answers_zero_and_biases_alone_move_the_output() {
         assert_eq!(NeuralGenome::default().forward(&inputs(1.0), &mut fresh()), [0.0; OUTPUTS]);
+        // one output bias, everything else zero. softsign is gentler than the
+        // `tanh` this used to be written against, so the bar is what a bias of
+        // 1.0 actually buys: half of it, and unambiguously positive.
         let mut biased = NeuralGenome::default();
         biased.biases[HIDDEN] = 1.0;
-        assert!(biased.forward(&inputs(0.0), &mut fresh())[0] > 0.5);
+        assert!(biased.forward(&inputs(0.0), &mut fresh())[0] > 0.4);
     }
 
     #[test]
