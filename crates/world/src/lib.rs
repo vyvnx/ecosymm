@@ -72,11 +72,18 @@ impl World {
         self.resources.standing()
     }
 
-    /// wrapping tile lookup, so the map is a torus and nobody hits an edge
+    /// wrapping tile lookup, so the map is a torus and nobody hits an edge.
+    ///
+    /// `floor`, not the `as isize` cast that was here first. the cast rounds
+    /// toward zero, so every coordinate in `-1..0` landed on tile 0 along with
+    /// every coordinate in `0..1` - two tiles' worth of world collapsed onto
+    /// one, and only on the two sides of the map nearest the origin. an
+    /// organism a step west of `x = 0` is on the eastern shore; it is not
+    /// standing on itself.
     #[inline]
     pub fn idx(&self, x: f32, y: f32) -> usize {
-        let xi = (x as isize).rem_euclid(self.width as isize) as usize;
-        let yi = (y as isize).rem_euclid(self.height as isize) as usize;
+        let xi = (x.floor() as isize).rem_euclid(self.width as isize) as usize;
+        let yi = (y.floor() as isize).rem_euclid(self.height as isize) as usize;
         yi * self.width + xi
     }
 
@@ -184,6 +191,23 @@ mod tests {
         assert_eq!(w.resource_at(i), w.capacity_at(i));
     }
 
+    /// the torus has no edges, so every tile has to be exactly one tile wide
+    /// in the lookup - including the two nearest the origin, where a cast
+    /// toward zero used to fold `-1..0` onto `0..1`
+    #[test]
+    fn the_seam_wraps_every_tile_to_the_same_width() {
+        let w = World::generate(1234, 64, 64);
+        // one step west of the origin is the eastern shore, not the origin
+        assert_eq!(w.idx(-0.5, 0.5), w.idx(63.5, 0.5));
+        assert_eq!(w.idx(-0.5, -0.5), w.idx(63.5, 63.5));
+        assert_ne!(w.idx(-0.5, 0.5), w.idx(0.5, 0.5));
+
+        // and every tile in a row is reached by exactly one unit of x, on
+        // both sides of the seam
+        let row: Vec<usize> = (-64..128).map(|i| w.idx(i as f32 + 0.5, 0.5)).collect();
+        assert!(row.windows(2).all(|p| p[1] == (p[0] + 1) % 64));
+    }
+
     #[test]
     fn summary_describes_the_generated_world() {
         let w = World::generate(1234, 64, 64);
@@ -270,19 +294,15 @@ mod tests {
         assert_eq!(w.idx(16.0, 16.0), w.idx(0.0, 0.0));
     }
 
-    /// `idx` casts to an integer *before* it wraps, so a negative fraction
-    /// lands on tile 0 rather than on the far edge. a viewer normalising the
-    /// continuous coordinate instead puts that organism one tile the other
-    /// way. pinned here because the two rules genuinely differ, and changing
-    /// this one would move every digest.
+    /// a fractional coordinate wraps the same way on both sides of zero, so
+    /// the tile an organism is standing on and the tile a viewer draws it on
+    /// are the same tile everywhere on the map
     #[test]
-    fn a_negative_fraction_truncates_before_it_wraps() {
+    fn a_negative_fraction_wraps_like_every_other_fraction() {
         let w = World::generate(1234, 16, 16);
-        assert_eq!(w.idx(-0.5, -0.5), w.idx(0.0, 0.0));
-        assert_ne!(w.idx(-0.5, 0.0), w.idx(15.5, 0.0));
-        // whole tiles agree, fractional ones are a tile apart. it is the
-        // truncation that differs, not the wrapping.
+        assert_eq!(w.idx(-0.5, -0.5), w.idx(15.5, 15.5));
+        assert_eq!(w.idx(-0.5, 0.0), w.idx(15.5, 0.0));
         assert_eq!(w.idx(-2.0, 0.0), w.idx(14.0, 0.0));
-        assert_ne!(w.idx(-1.5, 0.0), w.idx(14.5, 0.0));
+        assert_eq!(w.idx(-1.5, 0.0), w.idx(14.5, 0.0));
     }
 }
