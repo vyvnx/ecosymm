@@ -267,6 +267,41 @@ async fn a_viewer_that_lags_is_resynchronised_rather_than_waited_for() {
     task.abort();
 }
 
+/// a market left behind by anything - a restart, a run that failed part way -
+/// must not still be holding coins when the next one opens
+#[tokio::test]
+async fn a_stranded_market_is_refunded_before_the_next_one_opens() {
+    let state = state().await;
+    let player =
+        store::register(&state.db, "darwin", "darwin", "hash", crate::now()).await.unwrap();
+    let stranded = store::open_market(
+        &state.db,
+        store::NewRun { config_json: "{}", seed: 1, nonce_hex: "00", engine: "cpu" },
+        |id| format!("commitment-{id}"),
+        &ecosym_game::MarketRules::V1,
+        crate::now(),
+        crate::now() + 300,
+    )
+    .await
+    .unwrap();
+    store::place_bet(&state.db, player.id, stranded.id, MarketOutcome::SpeciesA, 50, crate::now())
+        .await
+        .unwrap();
+    assert_eq!(store::escrow(&state.db, player.id).await.unwrap(), 50);
+
+    let task = tokio::spawn(run_forever(state.clone(), schedule()));
+    wait_for_market(&state, stranded.id + 1).await;
+
+    let refunded = store::market(&state.db, stranded.id).await.unwrap().unwrap();
+    assert_eq!(refunded.status, MarketStatus::Void);
+    assert_eq!(store::escrow(&state.db, player.id).await.unwrap(), 0);
+    assert_eq!(
+        store::account(&state.db, player.id).await.unwrap().unwrap().balance,
+        store::INITIAL_GRANT
+    );
+    task.abort();
+}
+
 /// watching and betting are outside the simulation. the same seed has to fold
 /// into the same digest with a hub attached, whatever the pacing.
 #[test]

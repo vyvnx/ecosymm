@@ -187,16 +187,6 @@ pub async fn republish(state: &AppState, market_id: i64, kind: &str) -> store::R
 /// the process-long loop. it keeps going with nobody watching, which is the
 /// whole point: the world does not wait for an audience.
 pub async fn run_forever(state: AppState, schedule: Schedule) {
-    // a restart lost whatever simulation was in flight, so anything still
-    // live is refunded before a new run can start
-    match store::recover_interrupted(&state.db, now()).await {
-        Ok(ids) if !ids.is_empty() => {
-            println!("refunded {} interrupted market(s) from the last run", ids.len())
-        }
-        Err(e) => eprintln!("recovery failed: {e}"),
-        _ => {}
-    }
-
     loop {
         if let Err(e) = one_run(&state, &schedule).await {
             eprintln!("run failed: {e}");
@@ -206,6 +196,18 @@ pub async fn run_forever(state: AppState, schedule: Schedule) {
 }
 
 async fn one_run(state: &AppState, schedule: &Schedule) -> store::Result<()> {
+    // a restart lost whatever simulation was in flight, and a run that failed
+    // part way through left its own market behind. either way nothing may be
+    // left open when a new one starts, or its escrow would be held forever.
+    // in the ordinary case the previous market already settled and this finds
+    // nothing to do.
+    for market_id in store::recover_interrupted(&state.db, now()).await? {
+        println!("refunded interrupted market {market_id}");
+        for (account_id, revision) in store::accounts_in_market(&state.db, market_id).await? {
+            state.hub.account_changed(account_id, revision);
+        }
+    }
+
     let opened_at = now();
 
     // the anti-bankruptcy floor, on the server's clock and between runs
