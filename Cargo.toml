@@ -7,6 +7,7 @@ members = [
     "crates/genetics",
     "crates/world",
     "crates/ecology",
+    "crates/game",
     "crates/simulation",
     "crates/replay",
     "crates/gpu",
@@ -24,6 +25,7 @@ ecosym-core = { path = "crates/core" }
 ecosym-genetics = { path = "crates/genetics" }
 ecosym-world = { path = "crates/world" }
 ecosym-ecology = { path = "crates/ecology" }
+ecosym-game = { path = "crates/game" }
 ecosym-simulation = { path = "crates/simulation" }
 ecosym-replay = { path = "crates/replay" }
 ecosym-gpu = { path = "crates/gpu" }
