@@ -280,6 +280,31 @@ async fn total_extinction_voids_the_market_and_refunds_every_stake() {
     assert_ledger_explains_every_balance(&pool).await;
 }
 
+/// the form guide is the betting phase's only content, so it has to read
+/// finished markets and only those: an open one has no result to report.
+#[tokio::test]
+async fn the_form_guide_reads_finished_markets_newest_first() {
+    let pool = db().await;
+    let won = market(&pool, NOW).await;
+    lock_market(&pool, won.id, NOW).await.unwrap();
+    settle_market(&pool, won.id, &contest(400, 100), NOW).await.unwrap();
+
+    let died = market(&pool, NOW + 100).await;
+    lock_market(&pool, died.id, NOW + 100).await.unwrap();
+    void_market(&pool, died.id, NOW + 100).await.unwrap();
+
+    let open = market(&pool, NOW + 200).await;
+
+    let form = recent_form(&pool, 10).await.unwrap();
+    assert_eq!(form.iter().map(|f| f.market_id).collect::<Vec<_>>(), vec![died.id, won.id]);
+    assert!(!form.iter().any(|f| f.market_id == open.id));
+    assert_eq!((form[0].status, form[0].winning_outcome), ("void", None));
+    assert_eq!((form[1].status, form[1].winning_outcome), ("settled", Some(SpeciesA)));
+
+    // the limit is the newest end of the record, not the oldest
+    assert_eq!(recent_form(&pool, 1).await.unwrap()[0].market_id, died.id);
+}
+
 /// a restart lost the simulation, so the market it was watching cannot settle.
 /// recovery has to give every coin back, and running it again must not.
 #[tokio::test]

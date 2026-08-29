@@ -83,6 +83,7 @@ async fn main() {
         .route("/api/me", get(routes::me))
         .route("/api/market/current", get(routes::current_market))
         .route("/api/market/current/bet", put(routes::place_bet))
+        .route("/api/market/form", get(routes::recent_form))
         .route("/ws", get(ws_handler))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
         .with_state(state);

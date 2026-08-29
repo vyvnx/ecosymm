@@ -40,6 +40,7 @@ export const api = {
   login: (username, password) => post('/api/auth/login', { username, password }),
   logout: () => post('/api/auth/logout', {}),
   market: () => call('/api/market/current'),
+  form: () => call('/api/market/form'),
   bet: (marketId, outcome, stake) =>
     call('/api/market/current/bet', {
       method: 'PUT',

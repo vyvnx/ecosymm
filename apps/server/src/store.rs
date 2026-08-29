@@ -499,6 +499,39 @@ pub async fn bettors(pool: &SqlitePool, market_id: i64) -> Result<[i64; 3]> {
     Ok(counts)
 }
 
+/// how one finished market ended. the whole public record of a run, and
+/// deliberately nothing else: a bettor studies results, not seeds.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FormRow {
+    pub market_id: i64,
+    /// `settled`, or `void` for a world where nothing survived
+    pub status: &'static str,
+    pub winning_outcome: Option<MarketOutcome>,
+}
+
+/// the last finished markets, newest first. every run draws its own seed, so
+/// this is a sample of the distribution and never a tell about the next one.
+pub async fn recent_form(pool: &SqlitePool, limit: i64) -> Result<Vec<FormRow>> {
+    let rows = sqlx::query(
+        "SELECT id, status, winning_outcome FROM markets
+         WHERE status IN ('settled', 'void') ORDER BY id DESC LIMIT ?",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|r| FormRow {
+            market_id: r.get("id"),
+            status: MarketStatus::parse(r.get("status")).as_str(),
+            winning_outcome: r
+                .get::<Option<String>, _>("winning_outcome")
+                .as_deref()
+                .and_then(MarketOutcome::parse),
+        })
+        .collect())
+}
+
 pub async fn bet_of(pool: &SqlitePool, market_id: i64, account_id: i64) -> Result<Option<BetRow>> {
     let mut tx = pool.begin().await?;
     let bet = load_bet(&mut tx, market_id, account_id).await?;

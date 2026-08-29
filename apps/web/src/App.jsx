@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import AccountPanel from "./AccountPanel.jsx";
 import BetPanel from "./BetPanel.jsx";
+import BettingStage from "./BettingStage.jsx";
 import RunResult from "./RunResult.jsx";
 import WorldView, { createController } from "./WorldView.jsx";
 import { api } from "./game/api.js";
@@ -27,6 +28,7 @@ export default function App() {
   const [game, setGame] = useState(initialMarket);
   const [account, setAccount] = useState(null);
   const [bet, setBet] = useState(null);
+  const [form, setForm] = useState([]);
   // bumped whenever the socket has to start again: a bootstrap that did not
   // add up, or signing in and out, which is what re-authenticates it
   const [socketKey, setSocketKey] = useState(0);
@@ -85,6 +87,12 @@ export default function App() {
   useEffect(() => {
     if (marketId !== undefined) refreshMarket();
   }, [marketId, phase, account?.id, refreshMarket]);
+
+  // the record the betting phase reads back. only a market finishing changes
+  // it, so a new market id is the whole of when to ask for it again.
+  useEffect(() => {
+    api.form().then(setForm).catch(() => {});
+  }, [marketId]);
 
   // a bootstrap that did not add up: ask the server to start again
   useEffect(() => {
@@ -290,6 +298,10 @@ export default function App() {
           </p>
         )}
       </div>
+
+      {/* the betting phase. the map behind it belongs to the run that just
+          ended, so it goes dark and the record takes the screen instead. */}
+      <BettingStage market={game.market} form={form} />
 
       <AccountPanel
         account={account}

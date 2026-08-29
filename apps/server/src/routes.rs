@@ -224,6 +224,19 @@ pub async fn current_market(State(state): State<AppState>, headers: HeaderMap) -
         .into_response()
 }
 
+/// how many finished markets the form guide reads back. long enough to show a
+/// streak, short enough to stay one line of dots.
+const FORM_LENGTH: i64 = 12;
+
+/// how the last markets ended. readable signed out and identical for everyone:
+/// it is the record, not an edge, and a fresh seed each run keeps it that way.
+pub async fn recent_form(State(state): State<AppState>) -> Response {
+    match store::recent_form(&state.db, FORM_LENGTH).await {
+        Ok(form) => Json(form).into_response(),
+        Err(e) => refused(e),
+    }
+}
+
 /// "make my bet exactly this". a repeat of the same request reserves nothing
 /// twice, and the market id makes a late request fail rather than land on the
 /// next market.
