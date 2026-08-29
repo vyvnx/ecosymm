@@ -66,6 +66,36 @@ them (2,496 / 4,952 / 5,128). The world, not the founding stock, is what decides
 how many organisms it holds - which is what carrying capacity binding looks like,
 and it was not binding before.
 
+### Where it ended up
+
+The whole observatory arc, seed 1234, 500 epochs of 20 ticks on 128x128 - the
+free food-gradient actuator, then directional perception, then lifetime memory,
+then local mating, then softsign:
+
+| | actuator | perception | recurrence | local mating | softsign |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| wall clock | 29.1 s | 67.7 s | 111.1 s | 118.5 s | **94.9 s** |
+| mean population | 4,519 | 8,395 | 8,638 | 9,375 | 9,325 |
+| organism-ticks | 45.2 M | 84.0 M | 86.4 M | 93.8 M | 93.2 M |
+| throughput | 1.55 M/s | 1.24 M/s | 0.78 M/s | 0.79 M/s | **0.98 M/s** |
+| digest | `de08609476524f6c` | `cef4dae3963e179e` | `4aa51da60fc894eb` | `c0fd53a79b897029` | `063119e7a7c2029f` |
+
+The tick is 1.6x more expensive per organism than it was and the world holds
+2.1x as many of them. Softsign gave back a third of what recurrence cost.
+
+The `--population-per-species` sweep now says something it did not:
+
+| founders per species | seconds (200 epochs) | peak population |
+| ---: | ---: | ---: |
+| 125 | 34.2 s | 10,373 |
+| 500 | 35.5 s | 10,434 |
+| 2,000 | 34.0 s | 10,061 |
+
+Peak population is flat across a 16x range of founders, and so is wall clock,
+where before both tracked the founding stock (2,496 / 4,952 / 5,128). The world
+decides how many organisms it holds. That is carrying capacity binding, and it
+was not binding before.
+
 ### What the recurrence costs
 
 `12 -> 8 recurrent -> 4` against the feed-forward `12 -> 8 -> 4` at the same
@@ -85,11 +115,12 @@ productivity, seed 1234, 500 epochs:
 block being a second strided read per neuron. Behaviour is
 `experiments/2026-08-29-lifetime-memory-buys-persistence`.
 
-The softsign gate in `docs/adr/0009` was measured at the same time: the same
-scenario, the same seed, `x / (1 + |x|)` in place of `tanh` on both layers, runs
-in **77.3 s** with both species still alive. That is a 1.44x speedup and it is
-not adopted yet - the multi-seed viability half of the gate is its own
-experiment.
+The softsign gate in `docs/adr/0009` opened on the strength of that: `tanh` was
+half the wall clock of a run whose policy had just got 1.5x bigger. It is
+adopted, at 1.25 - 1.42x over six seeds and the twins, in
+`experiments/2026-08-29-softsign-pays-for-the-recurrence` - which is why the
+row above reads 94.9 s and not 118.5 s. The `tanh` calls line here is what the
+recurrence cost *before* that swap.
 
 ### What the policy costs
 

@@ -46,6 +46,16 @@ consistent across seven runs and no seed goes the other way.
 
 ### The viability half
 
+| run | `tanh` | softsign |
+| --- | --- | --- |
+| seed 1234 | `c0fd53a79b897029` | `063119e7a7c2029f` |
+| seed 99 | `bb6b6c4be7a5d712` | `382567dfb7c9005b` |
+| seed 7 | `c81a1e720211210f` | `7e9d15d314f71530` |
+| seed 20260828 | `a9148f0dd55a7b39` | `843680a11572c133` |
+| seed 555 | `447c80428501d202` | `5201c4df43907cc6` |
+| seed 31337 | `4344f5e163fcc3a4` | `3b500021708c80e4` |
+| twins 1234 | `560d70e68ff58598` | `fac0ddc06626f809` |
+
 Populations at epoch 500, A / B:
 
 | seed | `tanh` | softsign | winner |
