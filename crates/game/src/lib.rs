@@ -153,10 +153,17 @@ pub struct MarketRules {
 /// five percent, burned rather than paid to anyone. there is no house account.
 pub const FEE_BPS_V1: u32 = 500;
 
-/// calibrated over 1,000 default-config seeds; see
-/// `experiments/2026-08-28-bet-outcome-calibration`. picked as the smallest
-/// simple margin putting coexistence in the 20-35% band of non-void runs.
-pub const COEXISTENCE_MARGIN_V1: f64 = 0.20;
+/// two species coexist when their final/initial ratios are within `e^0.15` of
+/// each other - a little under a 16% difference either way.
+///
+/// measured, not guessed: over 1,000 default-config seeds this lands
+/// coexistence on 26.6% of runs, and it is the smallest simple margin inside
+/// the 20-35% band. 0.10 gives 17.4% and 0.20 gives 35.0%. see
+/// `experiments/2026-08-28-bet-outcome-calibration`.
+///
+/// it is frozen with rule version 1. every market stores the margin it
+/// settled under, so changing this cannot rewrite a settled market.
+pub const COEXISTENCE_MARGIN_V1: f64 = 0.15;
 
 impl MarketRules {
     pub const V1: MarketRules = MarketRules {

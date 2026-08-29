@@ -120,10 +120,18 @@ and refunds every stake:
 [ Species A ]   [ Coexistence ]   [ Species B ]
 ```
 
-Coexistence means both species survived *and* their final/initial population
-ratios are within a symmetric margin: `abs(ln(score_a / score_b)) <= 0.20`.
-That margin was calibrated over 1,000 recorded seeds rather than guessed - see
+Coexistence means both species survived *and* neither grew more than about
+16% faster than the other: `abs(ln(score_a / score_b)) <= 0.15`, where
+`score = final / initial`. That margin was measured over 1,000 recorded seeds
+before any settlement code was written - it lands Coexistence on 26.6% of
+runs, and 0.10 and 0.20 would have given 17.4% and 35.0%. The table, the
+command and a digest per seed are in
 `experiments/2026-08-28-bet-outcome-calibration`.
+
+The sides are not even - Species B takes about half the runs - and that is
+left alone. Pari-mutuel odds already price an outcome nobody expects to lose;
+tuning a species to even up a betting market would be the game reaching into
+the ecology.
 
 Betting is pari-mutuel. Whole coins are escrowed while the market is open,
 5% of the pool is burned at settlement, and the winners divide the rest in
