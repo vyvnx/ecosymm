@@ -243,11 +243,12 @@ from tick one.
 
 `MarketRules::V1.coexistence_margin` is frozen at 0.15 on the strength of 1,000
 runs in `2026-08-28-bet-outcome-calibration`, whose outcome distribution no
-longer holds - four of the six seeds here end with a species extinct. Moving
-the margin is a game change and gets its own experiment; it is not moved here. Re-measuring it
-is no longer cheap either: at the new populations a 300-seed sample was still
-at 30 runs after fifteen minutes, against roughly twenty minutes for 1,000
-before.
+longer holds - four of the six seeds here end with a species extinct. Measured
+again, coexistence has gone from 26.6% of runs to **0%**, and no candidate
+margin recovers it. The margin is not moved, because moving it cannot fix a
+distribution with nothing in the middle:
+`experiments/2026-08-29-coexistence-collapses` has the numbers and what they
+actually ask for.
 
 `FOOD_HERE` had to be renormalised in the same commit. It was
 `resource_at(tile).clamp(0.0, 1.0)`, harmless while tile capacity topped out at
