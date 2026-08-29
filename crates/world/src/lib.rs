@@ -269,4 +269,20 @@ mod tests {
         assert_eq!(w.idx(-1.0, -1.0), w.idx(15.0, 15.0));
         assert_eq!(w.idx(16.0, 16.0), w.idx(0.0, 0.0));
     }
+
+    /// `idx` casts to an integer *before* it wraps, so a negative fraction
+    /// lands on tile 0 rather than on the far edge. a viewer normalising the
+    /// continuous coordinate instead puts that organism one tile the other
+    /// way. pinned here because the two rules genuinely differ, and changing
+    /// this one would move every digest.
+    #[test]
+    fn a_negative_fraction_truncates_before_it_wraps() {
+        let w = World::generate(1234, 16, 16);
+        assert_eq!(w.idx(-0.5, -0.5), w.idx(0.0, 0.0));
+        assert_ne!(w.idx(-0.5, 0.0), w.idx(15.5, 0.0));
+        // whole tiles agree, fractional ones are a tile apart. it is the
+        // truncation that differs, not the wrapping.
+        assert_eq!(w.idx(-2.0, 0.0), w.idx(14.0, 0.0));
+        assert_ne!(w.idx(-1.5, 0.0), w.idx(14.5, 0.0));
+    }
 }

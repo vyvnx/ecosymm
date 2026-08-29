@@ -1,185 +1,350 @@
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from "react";
+import AccountPanel from "./AccountPanel.jsx";
+import BetPanel from "./BetPanel.jsx";
+import BettingStage from "./BettingStage.jsx";
+import RunResult from "./RunResult.jsx";
+import WorldView, { createController } from "./WorldView.jsx";
+import { api } from "./game/api.js";
+import { fromAnotherRun, initialMarket, reduceMarket } from "./game/market.js";
+import { decode } from "./render/protocol.js";
+import { speciesCss } from "./render/WorldRenderer.js";
 
-const DEFAULTS = { seed: 1234, population_per_species: 500, epochs: 500 }
-const COLORS = ['#34d399', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa']
+const PROTOCOL_VERSION = 1;
+
+// the readout refreshes ten times a second whatever the epoch rate is
+const HUD_INTERVAL = 100;
+
+// the server owns the run and keeps going without us, so a dropped socket is
+// only ever our problem to fix
+const RECONNECT_SECONDS = 3;
 
 export default function App() {
-  const [params, setParams] = useState(DEFAULTS)
-  const [start, setStart] = useState(null)
-  const [history, setHistory] = useState([])
-  const [status, setStatus] = useState('idle')
-  const [done, setDone] = useState(null)
-  const socket = useRef(null)
+  const [start, setStart] = useState(null);
+  const [status, setStatus] = useState("connecting");
+  const [connected, setConnected] = useState(false);
+  const [failure, setFailure] = useState(null);
+  const [done, setDone] = useState(null);
+  const [hud, setHud] = useState({ report: null, fps: 0, frameP95: 0 });
+  const [game, setGame] = useState(initialMarket);
+  const [account, setAccount] = useState(null);
+  const [bet, setBet] = useState(null);
+  const [form, setForm] = useState([]);
+  // bumped whenever the socket has to start again: a bootstrap that did not
+  // add up, or signing in and out, which is what re-authenticates it
+  const [socketKey, setSocketKey] = useState(0);
 
-  function run() {
-    socket.current?.close()
-    setHistory([])
-    setDone(null)
-    setStart(null)
-    setStatus('running')
+  const report = useRef(null);
+  const species = useRef([]);
+  const lastSnapshot = useRef(null);
+  const runId = useRef(null);
+  const controller = useRef(null);
+  controller.current ??= createController();
 
-    const qs = new URLSearchParams(params)
-    const ws = new WebSocket(`${location.origin.replace('http', 'ws')}/ws?${qs}`)
-    socket.current = ws
+  // per-epoch reports and per-frame counters both land in refs; React reads
+  // them on a fixed cadence and never from the render loop
+  useEffect(() => {
+    const id = setInterval(() => {
+      const stats = controller.current.stats();
+      setHud({
+        report: report.current,
+        fps: stats?.frameP50 ? Math.round(1000 / stats.frameP50) : 0,
+        frameP95: stats?.frameP95 ?? 0,
+      });
+    }, HUD_INTERVAL);
+    return () => clearInterval(id);
+  }, []);
 
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data)
-      if (msg.type === 'config') setStart(msg)
-      if (msg.type === 'epoch') setHistory((h) => [...h, msg.report])
-      if (msg.type === 'done') {
-        setDone(msg)
-        setStatus('done')
+  // an account is only ever what the server last said it was. a newer
+  // revision may not be overwritten by an older fetch.
+  const refreshAccount = useCallback(async () => {
+    try {
+      const next = await api.me();
+      setAccount((prev) => (prev && next.revision < prev.revision ? prev : next));
+    } catch (e) {
+      if (e.status === 401) setAccount(null);
+    }
+  }, []);
+
+  const refreshMarket = useCallback(async () => {
+    try {
+      const market = await api.market();
+      setBet(market.bet ?? null);
+      setGame((g) => reduceMarket(g, { type: "market_fetched", market }));
+    } catch {
+      // the socket carries the market too; a failed fetch is not fatal
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshAccount();
+    refreshMarket();
+  }, [refreshAccount, refreshMarket]);
+
+  // whose bet this is changes with the market and with settlement, and both
+  // arrive on the socket rather than from anything this page did
+  const marketId = game.market?.market_id;
+  const phase = game.market?.phase;
+  useEffect(() => {
+    if (marketId !== undefined) refreshMarket();
+  }, [marketId, phase, account?.id, refreshMarket]);
+
+  // the record the betting phase reads back. only a market finishing changes
+  // it, so a new market id is the whole of when to ask for it again.
+  useEffect(() => {
+    api.form().then(setForm).catch(() => {});
+  }, [marketId]);
+
+  // a bootstrap that did not add up: ask the server to start again
+  useEffect(() => {
+    if (game.resync > 0) setSocketKey((k) => k + 1);
+  }, [game.resync]);
+
+  // one socket at a time, opened on mount and reopened whenever it drops.
+  // nothing here asks the server for anything.
+  useEffect(() => {
+    let socket = null;
+    let retry = null;
+    let closed = false;
+
+    function connect() {
+      setStatus("connecting");
+      const ws = new WebSocket(`${location.origin.replace("http", "ws")}/ws`);
+      ws.binaryType = "arraybuffer";
+      socket = ws;
+
+      const live = () => socket === ws && !closed;
+
+      ws.onopen = () => live() && setConnected(true);
+      ws.onmessage = (e) => {
+        if (!live()) return;
+        try {
+          if (typeof e.data === "string") text(JSON.parse(e.data));
+          else binary(e.data);
+        } catch (err) {
+          setFailure(err.message);
+          setStatus("protocol error");
+          ws.close();
+        }
+      };
+      ws.onerror = () => {
+        if (live()) setStatus("no server - is `npm run server` up?");
+      };
+      ws.onclose = () => {
+        if (closed) return;
+        setConnected(false);
+        let left = RECONNECT_SECONDS;
+        const show = () =>
+          setStatus((s) => (s === "protocol error" ? s : `reconnecting in ${left}s`));
+        show();
+        retry = setInterval(() => {
+          left -= 1;
+          if (left > 0) return show();
+          clearInterval(retry);
+          connect();
+        }, 1000);
+      };
+
+      function text(msg) {
+        // the market half is a pure reducer: it decides what is stale, what
+        // is a duplicate, and when the stream stopped making sense
+        setGame((g) => reduceMarket(g, msg));
+
+        if (msg.type === "sync_begin") {
+          // the only place the renderer is reset. everything the last
+          // bootstrap left is about to be sent again.
+          species.current = [];
+          report.current = null;
+          lastSnapshot.current = null;
+          runId.current = null;
+          controller.current.reset();
+          setDone(null);
+          setFailure(null);
+          setStart(null);
+          setStatus("synchronising");
+          return;
+        }
+        if (msg.type === "sync_end") {
+          setStatus("watching");
+          return;
+        }
+        if (msg.type === "account_changed") {
+          // a revision and nothing else. what changed is fetched, never
+          // broadcast.
+          refreshAccount();
+          refreshMarket();
+          return;
+        }
+        if (fromAnotherRun(msg, runId.current)) {
+          setSocketKey((k) => k + 1);
+          return;
+        }
+
+        if (msg.type === "config") {
+          if (msg.protocol_version !== PROTOCOL_VERSION) {
+            throw new Error(
+              `server speaks protocol ${msg.protocol_version}, this build speaks ${PROTOCOL_VERSION}`,
+            );
+          }
+          // a new run: drop everything the last one left behind
+          species.current = msg.species;
+          report.current = null;
+          lastSnapshot.current = null;
+          runId.current = msg.run_id ?? null;
+          controller.current.reset();
+          setDone(null);
+          setStart(msg);
+        }
+        if (msg.type === "epoch") report.current = msg.report;
+        if (msg.type === "error") throw new Error(msg.message);
+        if (msg.type === "done") setDone(msg);
+      }
+
+      function binary(buffer) {
+        if (species.current.length === 0) return;
+        const message = decode(buffer, {
+          speciesCount: species.current.length,
+        });
+        if (message.kind === "world") {
+          controller.current.setWorld(message, species.current);
+        } else {
+          lastSnapshot.current = message.epoch;
+          controller.current.setSnapshot(message);
+        }
       }
     }
-    ws.onerror = () => setStatus('server unreachable - is `npm run server` up?')
-    ws.onclose = () => setStatus((s) => (s === 'running' ? 'stopped' : s))
+
+    connect();
+    return () => {
+      closed = true;
+      clearInterval(retry);
+      socket?.close();
+    };
+  }, [socketKey, refreshAccount, refreshMarket]);
+
+  async function placeBet(marketId, outcome, stake) {
+    const result = await api.bet(marketId, outcome, stake);
+    setAccount((prev) =>
+      prev && result.account.revision < prev.revision ? prev : result.account,
+    );
+    setBet(result.bet);
+    setGame((g) => reduceMarket(g, { type: "market_pool", market: result.market }));
   }
 
-  const last = history[history.length - 1]
-  const species = last?.species ?? start?.species ?? []
+  const last = hud.report;
+  const cards = last?.species ?? start?.species ?? [];
+  // a finished run is only reported while its own market is still the current
+  // one. once the next market opens, the run card leaves and betting returns.
+  const finished =
+    done && (game.market?.phase === "settled" || game.market?.phase === "void");
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-200 p-8 font-mono">
-      <header className="flex items-baseline gap-4">
-        <h1 className="text-2xl font-bold text-emerald-400">ecosym</h1>
-        <span className="text-sm text-neutral-500">{status}</span>
-        {start && <span className="text-xs text-neutral-600">engine {start.engine}</span>}
-      </header>
+    <div className="fixed inset-0 bg-neutral-950 font-mono text-neutral-200">
+      <WorldView controller={controller.current} />
 
-      {start && (
-        <p className="mt-2 text-xs text-neutral-600">
-          world {start.world.width}x{start.world.height}, {start.world.habitable_tiles} habitable
-          tiles, {start.world.initial_biomass.toFixed(0)} initial biomass
-        </p>
-      )}
+      {/* the readout is not interactive, so nothing in it may sit between the
+          viewer and the world */}
+      <div className="pointer-events-none absolute top-4 left-4 max-w-[min(14rem,calc(100vw-9rem))] rounded border border-neutral-800/80 bg-neutral-950/70 p-3 text-xs backdrop-blur sm:top-auto sm:bottom-4 sm:max-w-[min(22rem,calc(100vw-2rem))]">
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-bold text-emerald-400">ecosym</span>
+          <span className="text-neutral-400">{status}</span>
+          {start && <span className="text-neutral-600">{start.engine}</span>}
+        </div>
 
-      <div className="mt-6 flex flex-wrap items-end gap-4">
-        {Object.keys(DEFAULTS).map((k) => (
-          <label key={k} className="flex flex-col gap-1 text-xs uppercase text-neutral-500">
-            {k.replace(/_/g, ' ')}
-            <input
-              type="number"
-              value={params[k]}
-              onChange={(e) => setParams({ ...params, [k]: Number(e.target.value) })}
-              className="w-40 rounded bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none focus:ring-1 focus:ring-emerald-500"
+        {failure && <p className="mt-1 text-amber-400">{failure}</p>}
+
+        {last && (
+          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-0.5 tabular-nums text-neutral-400">
+            <Row label="epoch" value={last.epoch.toLocaleString()} />
+            <Row label="population" value={last.population.toLocaleString()} />
+            <Row
+              label="biomass"
+              value={Math.round(last.biomass).toLocaleString()}
             />
-          </label>
-        ))}
-        <button
-          onClick={run}
-          className="rounded bg-emerald-600 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-emerald-500"
-        >
-          run
-        </button>
-      </div>
+            <Row
+              label="fps"
+              value={`${hud.fps} · p95 ${hud.frameP95.toFixed(1)}ms`}
+            />
+          </div>
+        )}
 
-      <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Stat label="epoch" value={last?.epoch ?? 0} />
-        <Stat label="total population" value={last?.population ?? 0} />
-        <Stat label="biomass" value={last?.biomass} />
-        <Stat label="species" value={species.length} />
-      </div>
+        {cards.length > 0 && (
+          <div className="mt-2 space-y-0.5">
+            {/* species stay in the order the server sent them */}
+            {cards.map((s, i) => (
+              <div key={s.id} className="flex items-baseline gap-2">
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ background: speciesCss(i) }}
+                />
+                <span className="text-neutral-300">{s.name}</span>
+                <span className="ml-auto tabular-nums text-neutral-100">
+                  {(s.population ?? 0).toLocaleString()}
+                </span>
+                {s.births !== undefined && (
+                  <span className="w-24 text-right tabular-nums text-neutral-600">
+                    +{s.births} / -{s.deaths}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
-      {/* species stay in the order the server sent them; never keyed by a map */}
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {species.map((s, i) => (
-          <SpeciesCard key={s.id} species={s} color={COLORS[i % COLORS.length]} />
-        ))}
-      </div>
-
-      <Chart history={history} count={species.length} />
-
-      {done && (
-        <div className="mt-6 space-y-1 text-xs text-neutral-500">
-          <p>{winnerLine(done.outcome)}</p>
-          <p className="text-neutral-600">
-            winning is relative: it does not mean the winner is ecologically healthy.
+        {start && (
+          <p className="mt-2 text-neutral-600">
+            world {start.world.width}x{start.world.height} ·{" "}
+            {start.world.habitable_tiles.toLocaleString()} habitable · seed{" "}
+            {start.seed_hex}
           </p>
-          <p>
-            replay digest <span className="text-emerald-400">{done.digest}</span> over {done.epochs}{' '}
-            epochs — same seed, same digest
-          </p>
-        </div>
+        )}
+      </div>
+
+      {/* the betting phase. the map behind it belongs to the run that just
+          ended, so it goes dark and the record takes the screen instead. */}
+      <BettingStage market={game.market} form={form} />
+
+      <AccountPanel
+        account={account}
+        onChanged={(next) => {
+          setAccount(next);
+          setBet(null);
+          // the socket authenticates once, at connect: reopening it is what
+          // makes it listen for the right account
+          setSocketKey((k) => k + 1);
+        }}
+      />
+
+      <BetPanel
+        market={game.market}
+        account={account}
+        bet={bet}
+        synced={game.synced}
+        connected={connected}
+        offset={game.offset}
+        onBet={placeBet}
+      />
+
+      {/* the payout phase. the betting panel hides itself while a market is
+          settled, so exactly one of the two is ever on screen. */}
+      {finished && (
+        <RunResult
+          done={done}
+          market={game.market}
+          bet={bet}
+          seedHex={start?.seed_hex}
+          status={status}
+        />
       )}
     </div>
-  )
+  );
 }
 
-function winnerLine(outcome) {
-  if (!outcome) return ''
-  const name = (id) => outcome.species.find((s) => s.id === id)?.name ?? `species ${id}`
-  if (outcome.winner === 'None') return 'winner: none - every species went extinct'
-  if (outcome.winner.Species !== undefined) return `winner: ${name(outcome.winner.Species)}`
-  return `winner: tie between ${outcome.winner.Tie.map(name).join(', ')}`
-}
-
-function Stat({ label, value, digits = 0 }) {
+function Row({ label, value }) {
   return (
-    <div className="rounded border border-neutral-800 bg-neutral-900/50 p-3">
-      <div className="text-[10px] uppercase tracking-wide text-neutral-500">{label}</div>
-      <div className="mt-1 text-xl text-neutral-100">
-        {value === undefined ? '—' : Number(value).toFixed(digits)}
-      </div>
+    <div className="flex items-baseline gap-2">
+      <span className="text-neutral-600">{label}</span>
+      <span className="ml-auto text-neutral-100">{value}</span>
     </div>
-  )
+  );
 }
 
-function SpeciesCard({ species, color }) {
-  const genes = species.mean_genes ?? species.founder_genes
-  return (
-    <div className="rounded border border-neutral-800 bg-neutral-900/50 p-3">
-      <div className="flex items-baseline justify-between">
-        <span className="text-sm" style={{ color }}>
-          {species.name}
-        </span>
-        <span className="text-xl text-neutral-100">{species.population ?? '—'}</span>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-x-3 text-[11px] text-neutral-500">
-        <span>speed {genes.speed.toFixed(3)}</span>
-        <span>size {genes.size.toFixed(3)}</span>
-        <span>metab {genes.metabolism.toFixed(3)}</span>
-        <span>heat {genes.heat_pref.toFixed(3)}</span>
-      </div>
-      {species.births !== undefined && (
-        <div className="mt-2 text-[11px] text-neutral-600">
-          +{species.births} / -{species.deaths} this epoch
-        </div>
-      )}
-    </div>
-  )
-}
-
-function Chart({ history, count }) {
-  if (history.length < 2) {
-    return <div className="mt-6 h-64 rounded border border-neutral-800 bg-neutral-900/30" />
-  }
-  const peak = Math.max(...history.flatMap((r) => r.species.map((s) => s.population))) || 1
-  const line = (i) =>
-    history
-      .map(
-        (r, x) =>
-          `${(x / (history.length - 1)) * 100},${100 - ((r.species[i]?.population ?? 0) / peak) * 100}`
-      )
-      .join(' ')
-
-  return (
-    <div className="mt-6 rounded border border-neutral-800 bg-neutral-900/30 p-4">
-      <div className="mb-2 flex justify-between text-xs text-neutral-500">
-        <span>population per species</span>
-        <span>peak {peak}</span>
-      </div>
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-56 w-full">
-        {Array.from({ length: count }, (_, i) => (
-          <polyline
-            key={i}
-            points={line(i)}
-            fill="none"
-            stroke={COLORS[i % COLORS.length]}
-            strokeWidth="0.6"
-            vectorEffect="non-scaling-stroke"
-          />
-        ))}
-      </svg>
-    </div>
-  )
-}

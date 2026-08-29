@@ -54,23 +54,134 @@ beats one that fell to 1, and neither thrived.
 ## Web UI
 
 ```bash
-npm run server   # rust ws server on :3001
+npm run server   # rust ws server on :3001, sqlite in ./ecosym.db
 npm run dev      # vite on :5173, proxies /api and /ws to the server
 ```
+
+The page *is* the world: a fullscreen canvas showing terrain and climate, the
+shared resource field depleting and regrowing, and every sampled organism at its
+simulated position, coloured by species. One small readout floats bottom left -
+epoch, populations, frame rate, digest.
+
+Two things are interactive, and nothing else on the page is: a `username |
+1,000 DC` badge top right, and one betting panel bottom centre.
+
+One copy of the world is drawn, centred, at whatever size the window allows.
+The map is a torus, so it *could* tile to fill a wide screen; that was tried and
+removed, because two identical landmasses side by side read as two worlds.
+
+Movement, births and deaths are interpolated between samples at
+`requestAnimationFrame` cadence, so the picture stays smooth however fast the
+simulation and the socket happen to be running. That interpolated path is a
+visual estimate across an epoch, not a record of the 20 ticks inside it.
+
+The browser never starts anything - it cannot. There is no seed, population or
+epoch count it can ask for. One coordinator task on the server owns the run and
+market lifecycle and keeps going with nobody connected; a socket is a
+subscriber to it. Opening a second tab, a second browser or a second device
+joins the run already in progress rather than starting another world.
+
+The server samples state at most 15 times a wall-clock second and always sends
+the first and last. Aggregate epoch reports and the replay digest are unchanged
+and still arrive as JSON; the sampled render state is a separate binary frame
+(`ECSY`, version 1, little-endian, described in `apps/server/src/wire.rs`).
+Golden hex vectors are duplicated in `apps/server/src/wire.rs` and
+`apps/web/src/render/protocol.test.js` so a change to the format fails on both
+sides at once.
+
+Rendering is one-way by construction: extraction takes `&SimulationState`, is
+not part of `EpochEngine`, and cannot reach the digest -
+`render_extraction_does_not_reach_the_digest` in `crates/replay` is the proof.
+WebGL2 is required; there is no Canvas 2D fallback.
+
+```bash
+npm test -w @ecosym/web   # protocol, reconciliation, coins and market state
+```
+
+## The game
+
+Species compete; you bet **Darwin Coins** on which way it goes. Darwin Coin is
+**play money only** - it cannot be bought, sold, transferred, redeemed or
+cashed out, there are no payments and no prizes, and it represents no monetary
+value of any kind. Registration grants 1,000 DC, and an account that reaches
+zero with nothing at stake gets 100 DC back once a day.
+
+Each cycle is one market and one run:
+
+```text
+open the market for 30s  ->  lock  ->  run 500 epochs over ~60s
+  ->  settle  ->  hold the result for 8s  ->  open the next market
+```
+
+Three outcomes, exhaustive except for total extinction, which voids the market
+and refunds every stake:
+
+```text
+[ Species A ]   [ Coexistence ]   [ Species B ]
+```
+
+Coexistence means both species survived *and* neither grew more than about
+16% faster than the other: `abs(ln(score_a / score_b)) <= 0.15`, where
+`score = final / initial`. That margin was measured over 1,000 recorded seeds
+before any settlement code was written - it lands Coexistence on 26.6% of
+runs, and 0.10 and 0.20 would have given 17.4% and 35.0%. The table, the
+command and a digest per seed are in
+`experiments/2026-08-28-bet-outcome-calibration`.
+
+The sides are not even - Species B takes about half the runs - and that is
+left alone. Pari-mutuel odds already price an outcome nobody expects to lose;
+tuning a species to even up a betting market would be the game reaching into
+the ecology.
+
+Betting is pari-mutuel. Whole coins are escrowed while the market is open,
+5% of the pool is burned at settlement, and the winners divide the rest in
+proportion to their stakes. Nothing is paid from outside the pool, so a
+projected return moves with every later bet and **can be below the stake when
+nearly everyone was right**. The panel says so before you confirm.
+
+The seed is the reason the market locks before the run starts. Before the
+first bet the server publishes `sha256(tag || run_id || config || seed ||
+nonce)`; seed and nonce are revealed only once the lock transaction has
+committed. So the server cannot pick a seed after seeing the pool, and a
+bettor cannot run the world ahead of the market. Both halves are checkable
+after the fact from the reveal and the retained digest.
+
+The game layer never reaches into the sim. A finished `RunOutcome` crosses into
+`ecosym-game` as two species ids and four head counts, and nothing crosses
+back - `publishing_and_pacing_cannot_reach_the_digest` runs the same seed with
+and without viewers, and with and without pacing, and compares digests.
+
+### Running it
+
+Accounts, coins, markets, bets and an append-only ledger live in one SQLite
+file, `./ecosym.db` by default and `$ECOSYM_DB` if set. Migrations run at
+startup. Exactly one server may own a database: the second one to try takes an
+exclusive lock on `ecosym.lock`, fails, and says so, because two coordinators
+would run two worlds into one set of markets.
+
+A restart cannot resume a simulation it never checkpointed, so any market that
+was still open or running is voided and refunded exactly once before a new run
+starts.
+
+In production, set `ECOSYM_SECURE_COOKIES=1` and terminate TLS in front of the
+server - the session cookie is `HttpOnly; SameSite=Lax` either way, but without
+`Secure` it will travel over plain http. Back up the SQLite file: it is the
+only record of every account and every coin.
 
 ## Layout
 
 | path | what |
 | --- | --- |
 | `apps/cli` | the `ecosym` binary (workspace `default-members`, so bare `cargo run` hits it) |
-| `apps/server` | axum HTTP + WebSocket, streams one message per epoch |
-| `apps/web` | React + Tailwind, live per-species chart off the WebSocket |
+| `apps/server` | axum HTTP + WebSocket; a blocking producer streams epoch reports as JSON and sampled render state as binary |
+| `apps/web` | React + Tailwind dashboard around a WebGL2 world view (`src/render/`) |
 | `crates/core` | rng, `SimConfig`, hashing, named seed derivation |
 | `crates/genetics` | `GenomeId`, `Genes`, `NeuralGenome`, immutable `Genome`, mutation, recombination |
 | `crates/world` | terrain, passability, climate, and the shared resource field with local dispersal |
 | `crates/ecology` | `Organism`, `Species`, `Population`, phenotype, `behavior/` (observations, neural policy, actions), interactions |
 | `crates/simulation` | `SimulationState`, the `EpochEngine` contract, `CpuEngine`, the runner |
 | `crates/replay` | run checksums |
+| `crates/game` | darwin coins, market rules, three-outcome scoring, pari-mutuel settlement |
 | `crates/gpu` | empty until the CPU loop is measurably the bottleneck |
 
 Dependencies run one way, left depending on right:
@@ -81,12 +192,19 @@ world      -> core
 ecology    -> core + genetics + world
 simulation -> core + genetics + ecology + world
 replay     -> simulation
+game       -> serde only
 gpu        -> simulation (future)
-cli/server -> simulation + replay
+cli        -> simulation + replay
+server     -> simulation + replay + game
 ```
 
 `ecosym-simulation` must never depend on `ecosym-gpu`, `wgpu` or CUDA. The
 backend seam is `EpochEngine`, defined in `crates/simulation`.
+
+`ecosym-game` depends on nothing but `serde` - not the simulation, not a
+database, not a clock, not a random number generator. That is what makes it
+structurally impossible for a balance or a wager to reach the ecology, and
+`the_game_crate_cannot_reach_the_simulation` fails if it ever gains one.
 
 ## Test
 

@@ -86,7 +86,7 @@ change lives:
 
 | scope | path |
 | --- | --- |
-| `core` `genetics` `world` `ecology` `simulation` `replay` `gpu` | `crates/*` |
+| `core` `genetics` `world` `ecology` `simulation` `replay` `game` `gpu` | `crates/*` |
 | `cli` `server` `web` | `apps/*` |
 | `bench` | `benchmarks/` |
 | `exp` | `experiments/` |
