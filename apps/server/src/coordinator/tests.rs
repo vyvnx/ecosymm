@@ -12,6 +12,7 @@ fn schedule() -> Schedule {
     Schedule {
         market: Duration::from_millis(150),
         run: Duration::ZERO,
+        result: Duration::ZERO,
         config: SimConfig {
             seed: 1234,
             population_per_species: 20,

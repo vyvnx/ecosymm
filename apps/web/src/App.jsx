@@ -1,5 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import AccountPanel from "./AccountPanel.jsx";
+import BetPanel from "./BetPanel.jsx";
 import WorldView, { createController } from "./WorldView.jsx";
+import { api } from "./game/api.js";
+import { formatCoins } from "./game/coins.js";
+import { fromAnotherRun, initialMarket, reduceMarket } from "./game/market.js";
 import { decode } from "./render/protocol.js";
 import { speciesCss } from "./render/WorldRenderer.js";
 
@@ -8,21 +13,28 @@ const PROTOCOL_VERSION = 1;
 // the readout refreshes ten times a second whatever the epoch rate is
 const HUD_INTERVAL = 100;
 
-// the server owns the runs. when one ends its socket closes, so tuning back in
-// is how the next one is picked up - after a counted breather, so the ending of
-// one run is readable before the next world wipes it away.
-const RECONNECT_SECONDS = 10;
+// the server owns the run and keeps going without us, so a dropped socket is
+// only ever our problem to fix
+const RECONNECT_SECONDS = 3;
 
 export default function App() {
   const [start, setStart] = useState(null);
   const [status, setStatus] = useState("connecting");
+  const [connected, setConnected] = useState(false);
   const [failure, setFailure] = useState(null);
   const [done, setDone] = useState(null);
   const [hud, setHud] = useState({ report: null, fps: 0, frameP95: 0 });
+  const [game, setGame] = useState(initialMarket);
+  const [account, setAccount] = useState(null);
+  const [bet, setBet] = useState(null);
+  // bumped whenever the socket has to start again: a bootstrap that did not
+  // add up, or signing in and out, which is what re-authenticates it
+  const [socketKey, setSocketKey] = useState(0);
 
   const report = useRef(null);
   const species = useRef([]);
   const lastSnapshot = useRef(null);
+  const runId = useRef(null);
   const controller = useRef(null);
   controller.current ??= createController();
 
@@ -40,6 +52,45 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  // an account is only ever what the server last said it was. a newer
+  // revision may not be overwritten by an older fetch.
+  const refreshAccount = useCallback(async () => {
+    try {
+      const next = await api.me();
+      setAccount((prev) => (prev && next.revision < prev.revision ? prev : next));
+    } catch (e) {
+      if (e.status === 401) setAccount(null);
+    }
+  }, []);
+
+  const refreshMarket = useCallback(async () => {
+    try {
+      const market = await api.market();
+      setBet(market.bet ?? null);
+      setGame((g) => reduceMarket(g, { type: "market_fetched", market }));
+    } catch {
+      // the socket carries the market too; a failed fetch is not fatal
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshAccount();
+    refreshMarket();
+  }, [refreshAccount, refreshMarket]);
+
+  // whose bet this is changes with the market and with settlement, and both
+  // arrive on the socket rather than from anything this page did
+  const marketId = game.market?.market_id;
+  const phase = game.market?.phase;
+  useEffect(() => {
+    if (marketId !== undefined) refreshMarket();
+  }, [marketId, phase, account?.id, refreshMarket]);
+
+  // a bootstrap that did not add up: ask the server to start again
+  useEffect(() => {
+    if (game.resync > 0) setSocketKey((k) => k + 1);
+  }, [game.resync]);
+
   // one socket at a time, opened on mount and reopened whenever it drops.
   // nothing here asks the server for anything.
   useEffect(() => {
@@ -55,6 +106,7 @@ export default function App() {
 
       const live = () => socket === ws && !closed;
 
+      ws.onopen = () => live() && setConnected(true);
       ws.onmessage = (e) => {
         if (!live()) return;
         try {
@@ -71,11 +123,10 @@ export default function App() {
       };
       ws.onclose = () => {
         if (closed) return;
+        setConnected(false);
         let left = RECONNECT_SECONDS;
         const show = () =>
-          setStatus((s) =>
-            s === "protocol error" ? s : `next run in ${left}s`,
-          );
+          setStatus((s) => (s === "protocol error" ? s : `reconnecting in ${left}s`));
         show();
         retry = setInterval(() => {
           left -= 1;
@@ -86,6 +137,40 @@ export default function App() {
       };
 
       function text(msg) {
+        // the market half is a pure reducer: it decides what is stale, what
+        // is a duplicate, and when the stream stopped making sense
+        setGame((g) => reduceMarket(g, msg));
+
+        if (msg.type === "sync_begin") {
+          // the only place the renderer is reset. everything the last
+          // bootstrap left is about to be sent again.
+          species.current = [];
+          report.current = null;
+          lastSnapshot.current = null;
+          runId.current = null;
+          controller.current.reset();
+          setDone(null);
+          setFailure(null);
+          setStart(null);
+          setStatus("synchronising");
+          return;
+        }
+        if (msg.type === "sync_end") {
+          setStatus("watching");
+          return;
+        }
+        if (msg.type === "account_changed") {
+          // a revision and nothing else. what changed is fetched, never
+          // broadcast.
+          refreshAccount();
+          refreshMarket();
+          return;
+        }
+        if (fromAnotherRun(msg, runId.current)) {
+          setSocketKey((k) => k + 1);
+          return;
+        }
+
         if (msg.type === "config") {
           if (msg.protocol_version !== PROTOCOL_VERSION) {
             throw new Error(
@@ -96,25 +181,18 @@ export default function App() {
           species.current = msg.species;
           report.current = null;
           lastSnapshot.current = null;
+          runId.current = msg.run_id ?? null;
           controller.current.reset();
           setDone(null);
-          setFailure(null);
           setStart(msg);
-          setStatus("watching");
         }
         if (msg.type === "epoch") report.current = msg.report;
         if (msg.type === "error") throw new Error(msg.message);
-        if (msg.type === "done") {
-          setDone(msg);
-          // the terminal snapshot arrives before `done`, so a run that ends
-          // without one ended early rather than finishing
-          setStatus(
-            lastSnapshot.current === msg.epochs ? "complete" : "ended early",
-          );
-        }
+        if (msg.type === "done") setDone(msg);
       }
 
       function binary(buffer) {
+        if (species.current.length === 0) return;
         const message = decode(buffer, {
           speciesCount: species.current.length,
         });
@@ -133,7 +211,16 @@ export default function App() {
       clearInterval(retry);
       socket?.close();
     };
-  }, []);
+  }, [socketKey, refreshAccount, refreshMarket]);
+
+  async function placeBet(marketId, outcome, stake) {
+    const result = await api.bet(marketId, outcome, stake);
+    setAccount((prev) =>
+      prev && result.account.revision < prev.revision ? prev : result.account,
+    );
+    setBet(result.bet);
+    setGame((g) => reduceMarket(g, { type: "market_pool", market: result.market }));
+  }
 
   const last = hud.report;
   const cards = last?.species ?? start?.species ?? [];
@@ -142,9 +229,9 @@ export default function App() {
     <div className="fixed inset-0 bg-neutral-950 font-mono text-neutral-200">
       <WorldView controller={controller.current} />
 
-      {/* nothing here is interactive, so nothing here may sit between the
+      {/* the readout is not interactive, so nothing in it may sit between the
           viewer and the world */}
-      <div className="pointer-events-none absolute bottom-4 left-4 max-w-[min(22rem,calc(100vw-2rem))] rounded border border-neutral-800/80 bg-neutral-950/70 p-3 text-xs backdrop-blur">
+      <div className="pointer-events-none absolute top-4 left-4 max-w-[min(14rem,calc(100vw-9rem))] rounded border border-neutral-800/80 bg-neutral-950/70 p-3 text-xs backdrop-blur sm:top-auto sm:bottom-4 sm:max-w-[min(22rem,calc(100vw-2rem))]">
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-bold text-emerald-400">ecosym</span>
           <span className="text-neutral-400">{status}</span>
@@ -200,9 +287,30 @@ export default function App() {
         )}
       </div>
 
-      {/* the run's obituary, and the only thing that ever covers the world. it
-          arrives with `done` and leaves on its own when the next run's config
-          lands, so the transition between runs is something you can read */}
+      <AccountPanel
+        account={account}
+        onChanged={(next) => {
+          setAccount(next);
+          setBet(null);
+          // the socket authenticates once, at connect: reopening it is what
+          // makes it listen for the right account
+          setSocketKey((k) => k + 1);
+        }}
+      />
+
+      <BetPanel
+        market={game.market}
+        account={account}
+        bet={bet}
+        synced={game.synced}
+        connected={connected}
+        offset={game.offset}
+        onBet={placeBet}
+      />
+
+      {/* the run's obituary. it arrives with `done` and leaves on its own when
+          the next run's config lands, so the transition is something you can
+          read */}
       {done && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
           <div className="w-80 max-w-full animate-[outcome-in_400ms_ease-out] rounded border border-neutral-800/80 bg-neutral-950/85 p-4 text-xs backdrop-blur motion-reduce:animate-none">
@@ -233,6 +341,13 @@ export default function App() {
                 </div>
               ))}
             </div>
+
+            {game.market?.gross_pool > 0 && (
+              <p className="mt-3 text-neutral-600">
+                {formatCoins(game.market.gross_pool)} wagered ·{" "}
+                {formatCoins(game.market.burn)} burned
+              </p>
+            )}
 
             {/* one identifier per line: a u64 seed is long enough to wrap a
                 shared line mid-phrase */}

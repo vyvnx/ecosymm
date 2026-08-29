@@ -29,6 +29,9 @@ use std::time::{Duration, Instant};
 /// fixed constants, not runtime configuration.
 pub const MARKET_WINDOW: Duration = Duration::from_secs(30);
 pub const RUN_WINDOW: Duration = Duration::from_secs(60);
+/// long enough to read what the market paid before the next one opens over
+/// it. without it a settlement is broadcast and replaced in the same instant.
+pub const RESULT_WINDOW: Duration = Duration::from_secs(8);
 
 /// at most ~15 render samples a wall-clock second. when the server falls
 /// behind it is samples that are dropped, never epochs.
@@ -41,13 +44,19 @@ const SAMPLE_INTERVAL: Duration = Duration::from_millis(66);
 pub struct Schedule {
     pub market: Duration,
     pub run: Duration,
+    pub result: Duration,
     /// only the seed differs between runs; the rest is the fixed scenario
     pub config: SimConfig,
 }
 
 impl Default for Schedule {
     fn default() -> Self {
-        Schedule { market: MARKET_WINDOW, run: RUN_WINDOW, config: SimConfig::default() }
+        Schedule {
+            market: MARKET_WINDOW,
+            run: RUN_WINDOW,
+            result: RESULT_WINDOW,
+            config: SimConfig::default(),
+        }
     }
 }
 
@@ -261,6 +270,10 @@ async fn one_run(state: &AppState, schedule: &Schedule) -> store::Result<()> {
         state.hub.account_changed(account_id, revision);
     }
     republish(state, market.id, "market_settled").await?;
+
+    // the settled market stays current while it can still be read. the next
+    // one opening is what replaces it.
+    tokio::time::sleep(schedule.result).await;
     Ok(())
 }
 
@@ -338,7 +351,7 @@ fn simulate(cfg: SimConfig, hub: &Hub, run_id: i64, epoch_pace: Duration) -> (St
         let extinct = report.population == 0;
         hub.publish(
             Slot::Report,
-            Message::Text(json!({ "type": "epoch", "report": report }).to_string().into()),
+            Message::Text(json!({ "type": "epoch", "run_id": run_id, "report": report }).to_string().into()),
         );
         recorder.push(report);
 
