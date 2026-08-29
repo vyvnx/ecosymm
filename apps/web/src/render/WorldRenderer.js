@@ -207,9 +207,14 @@ export class WorldRenderer {
     this.worldUniforms = uniforms(gl, this.worldProgram, ['u_terrain', 'u_before', 'u_after', 'u_alpha'])
     this.organismUniforms = uniforms(gl, this.organismProgram, ['u_alpha', 'u_world', 'u_scale', 'u_palette'])
 
-    this.terrain = texture(gl, gl.LINEAR, gl.REPEAT)
-    this.before = texture(gl, gl.LINEAR, gl.REPEAT)
-    this.after = texture(gl, gl.LINEAR, gl.REPEAT)
+    // clamped, not repeated: the quad's uv reaches 0 and 1 exactly, so a
+    // wrapping sampler blends the outer half-texel with the far shore and
+    // paints a thin strip of the opposite side down the edge. the world is
+    // still a torus - only one copy of it is drawn, so nothing here needs to
+    // read across the seam.
+    this.terrain = texture(gl, gl.LINEAR, gl.CLAMP_TO_EDGE)
+    this.before = texture(gl, gl.LINEAR, gl.CLAMP_TO_EDGE)
+    this.after = texture(gl, gl.LINEAR, gl.CLAMP_TO_EDGE)
     this.palette = texture(gl, gl.NEAREST, gl.CLAMP_TO_EDGE)
 
     this.buffer = gl.createBuffer()
