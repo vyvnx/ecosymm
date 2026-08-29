@@ -356,6 +356,37 @@ async fn repeating_a_bet_reserves_nothing_twice_and_a_late_one_is_refused() {
     assert_eq!(late.body["error"]["code"], "market_not_open");
 }
 
+/// replacing a bet is an ordinary thing to do repeatedly, and several players
+/// can share one address. neither may run into the credential throttle.
+#[tokio::test]
+async fn betting_is_not_rate_limited_the_way_credentials_are() {
+    let (router, state) = app().await;
+    let market = open_market(&state).await;
+    let token = signup(&router, "darwin").await.token().unwrap();
+    for stake in 1..=30 {
+        let reply = send(
+            &router,
+            Method::PUT,
+            "/api/market/current/bet",
+            Some(&token),
+            Some(ORIGIN),
+            json!({ "market_id": market.id, "outcome": "species_a", "stake": stake }),
+        )
+        .await;
+        assert_eq!(reply.status, StatusCode::OK, "replacement {stake} was refused");
+    }
+    assert_eq!(store::pools(&state.db, market.id).await.unwrap(), [30, 0, 0]);
+
+    // credentials still are
+    for attempt in 1..=12 {
+        let reply = signup(&router, &format!("player{attempt}")).await;
+        if reply.status == StatusCode::TOO_MANY_REQUESTS {
+            return;
+        }
+    }
+    panic!("registration was never throttled");
+}
+
 #[tokio::test]
 async fn betting_needs_a_session_and_a_stake_within_the_rules() {
     let (router, state) = app().await;

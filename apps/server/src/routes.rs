@@ -69,18 +69,20 @@ fn refused(e: StoreError) -> Response {
     }
 }
 
-fn guard(headers: &HeaderMap, state: &AppState, who: SocketAddr) -> Option<Response> {
-    if !auth::same_origin(headers) {
-        return Some(error(
-            StatusCode::FORBIDDEN,
-            "bad_origin",
-            "request came from another origin",
-        ));
-    }
-    if !state.throttle.allow(&who.ip().to_string(), now()) {
-        return Some(error(StatusCode::TOO_MANY_REQUESTS, "slow_down", "too many attempts"));
-    }
-    None
+/// every mutating route needs the expected origin. the same-site cookie is the
+/// first line and this is the second.
+fn guard(headers: &HeaderMap) -> Option<Response> {
+    (!auth::same_origin(headers))
+        .then(|| error(StatusCode::FORBIDDEN, "bad_origin", "request came from another origin"))
+}
+
+/// credential routes need a speed bump on top, because those are the ones
+/// worth guessing at. betting is not throttled: it is already bounded by a
+/// session, a stake cap and a balance, and one player behind a shared address
+/// must not cost another their replacements.
+fn throttled(state: &AppState, who: SocketAddr) -> Option<Response> {
+    (!state.throttle.allow(&who.ip().to_string(), now()))
+        .then(|| error(StatusCode::TOO_MANY_REQUESTS, "slow_down", "too many attempts"))
 }
 
 fn with_cookie(cookie: String, body: impl Serialize) -> Response {
@@ -104,7 +106,7 @@ pub async fn register(
     headers: HeaderMap,
     Json(body): Json<Credentials>,
 ) -> Response {
-    if let Some(stop) = guard(&headers, &state, who) {
+    if let Some(stop) = guard(&headers).or_else(|| throttled(&state, who)) {
         return stop;
     }
     let (username, key) = match auth::validate_username(&body.username) {
@@ -141,7 +143,7 @@ pub async fn login(
     headers: HeaderMap,
     Json(body): Json<Credentials>,
 ) -> Response {
-    if let Some(stop) = guard(&headers, &state, who) {
+    if let Some(stop) = guard(&headers).or_else(|| throttled(&state, who)) {
         return stop;
     }
     let key = body.username.to_ascii_lowercase();
@@ -221,12 +223,11 @@ pub async fn current_market(State(state): State<AppState>, headers: HeaderMap) -
 /// next market.
 pub async fn place_bet(
     State(state): State<AppState>,
-    ConnectInfo(who): ConnectInfo<SocketAddr>,
     Session(account): Session,
     headers: HeaderMap,
     Json(body): Json<BetRequest>,
 ) -> Response {
-    if let Some(stop) = guard(&headers, &state, who) {
+    if let Some(stop) = guard(&headers) {
         return stop;
     }
     let placed =
