@@ -86,8 +86,10 @@ const won = (row) => (row.status === 'void' ? null : row.winning_outcome)
 function mark(outcome) {
   if (outcome === 'species_a') return { background: speciesCss(0) }
   if (outcome === 'species_b') return { background: speciesCss(1) }
+  // a split dot is unreadable at this size, so coexistence is one species
+  // ringed by the other: both colours, still one glance
   if (outcome === 'coexistence') {
-    return { background: `linear-gradient(90deg, ${speciesCss(0)} 50%, ${speciesCss(1)} 50%)` }
+    return { background: speciesCss(0), boxShadow: `inset 0 0 0 2px ${speciesCss(1)}` }
   }
   return { boxShadow: 'inset 0 0 0 1px #525252' }
 }
