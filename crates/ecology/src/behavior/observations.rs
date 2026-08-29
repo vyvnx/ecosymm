@@ -8,7 +8,7 @@
 //! every input is normalised to `0..1`. one convention, no exceptions, so a
 //! weight means the same thing wherever it sits.
 
-use crate::{phenotype, Organism, Species};
+use crate::{phenotype, CellIndex, Organism};
 use ecosym_genetics::{Genes, INPUTS};
 use ecosym_world::World;
 
@@ -26,53 +26,6 @@ pub const MOMENTUM: usize = 7;
 /// crowd size at which a density input reads 0.5. a normalisation constant and
 /// nothing else - it is not a carrying capacity and nothing enforces it.
 const CROWD: f32 = 4.0;
-
-/// how many organisms of each species stand on each tile, rebuilt once per
-/// tick before anybody moves.
-///
-/// it is a snapshot on purpose: every organism in a tick sees the same crowd,
-/// so density is the one observation that visit order cannot skew. the
-/// resource field stays first-come-first-served, because that *is* the
-/// competition.
-#[derive(Clone, Debug, Default)]
-pub struct Occupancy {
-    species: usize,
-    tiles: usize,
-    /// row-major, `species * tiles + tile`
-    counts: Vec<u32>,
-}
-
-impl Occupancy {
-    pub fn rebuild(&mut self, species: &[Species], world: &World) {
-        let tiles = world.width() * world.height();
-        if self.tiles != tiles || self.species != species.len() {
-            self.species = species.len();
-            self.tiles = tiles;
-            self.counts = vec![0; tiles * species.len()];
-        } else {
-            // ponytail: clearing the whole field is one memset per tick against
-            // a few thousand scattered writes. swap to clearing only the tiles
-            // that were touched if the world ever gets much bigger than the
-            // population.
-            self.counts.fill(0);
-        }
-        for (s, species) in species.iter().enumerate() {
-            for o in species.population().organisms() {
-                self.counts[s * tiles + world.idx(o.x, o.y)] += 1;
-            }
-        }
-    }
-
-    /// organisms of `species` standing on `tile`
-    pub fn same(&self, species: usize, tile: usize) -> u32 {
-        self.counts.get(species * self.tiles + tile).copied().unwrap_or(0)
-    }
-
-    /// organisms of every *other* species standing on `tile`
-    pub fn others(&self, species: usize, tile: usize) -> u32 {
-        (0..self.species).filter(|s| *s != species).map(|s| self.same(s, tile)).sum()
-    }
-}
 
 /// what one step out looks like from here
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -124,7 +77,7 @@ pub fn observe(
     o: &Organism,
     species: usize,
     world: &World,
-    occupancy: &Occupancy,
+    occupancy: &CellIndex,
     view: &Neighbourhood,
 ) -> [f32; INPUTS] {
     let g = o.genes();
@@ -156,7 +109,7 @@ fn saturate(v: f32, half: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FounderStreams, OrganismIds, Population, SpeciesBlueprint, SpeciesId};
+    use crate::{FounderStreams, OrganismIds, Population, Species, SpeciesBlueprint, SpeciesId};
     use ecosym_core::Rng;
     use ecosym_genetics::{Genome, GenomeIds, NeuralGenome};
 
@@ -213,34 +166,10 @@ mod tests {
     }
 
     #[test]
-    fn occupancy_counts_kin_and_rivals_on_the_tile_it_is_asked_about() {
-        let world = World::generate(1234, 32, 32);
-        let flock = vec![species(3, 4.0, 4.0, &world), species(2, 4.0, 4.0, &world)];
-        let mut occupancy = Occupancy::default();
-        occupancy.rebuild(&flock, &world);
-
-        let here = world.idx(4.0, 4.0);
-        assert_eq!(occupancy.same(0, here), 3);
-        assert_eq!(occupancy.others(0, here), 2);
-        assert_eq!(occupancy.others(1, here), 3);
-        assert_eq!(occupancy.same(0, world.idx(9.0, 9.0)), 0);
-    }
-
-    #[test]
-    fn rebuilding_clears_the_previous_tick() {
-        let world = World::generate(1234, 32, 32);
-        let mut occupancy = Occupancy::default();
-        occupancy.rebuild(&[species(5, 4.0, 4.0, &world)], &world);
-        occupancy.rebuild(&[species(5, 9.0, 9.0, &world)], &world);
-        assert_eq!(occupancy.same(0, world.idx(4.0, 4.0)), 0);
-        assert_eq!(occupancy.same(0, world.idx(9.0, 9.0)), 5);
-    }
-
-    #[test]
     fn every_observation_is_normalised_to_zero_one() {
         let mut world = World::generate(1234, 48, 48);
         let flock = vec![species(6, 4.0, 4.0, &world), species(6, 4.0, 4.0, &world)];
-        let mut occupancy = Occupancy::default();
+        let mut occupancy = CellIndex::default();
         occupancy.rebuild(&flock, &world);
 
         let mut rng = Rng::new(3);

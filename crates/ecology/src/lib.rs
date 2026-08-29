@@ -10,12 +10,14 @@
 pub mod behavior;
 pub mod interactions;
 pub mod phenotype;
+pub mod spatial;
 
 mod organism;
 mod population;
 mod species;
 
-pub use behavior::{Act, BehaviorStats, BehaviorTally, Conception, Intent, Occupancy};
+pub use behavior::{Act, BehaviorStats, BehaviorTally, Conception, Intent};
 pub use organism::{Organism, OrganismId, OrganismIds};
 pub use population::Population;
+pub use spatial::CellIndex;
 pub use species::{FounderStreams, Species, SpeciesBlueprint, SpeciesId, START_ENERGY};

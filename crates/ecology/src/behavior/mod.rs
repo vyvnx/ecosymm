@@ -17,9 +17,8 @@ pub mod neural_policy;
 pub mod observations;
 
 pub use actions::{Act, BehaviorStats, BehaviorTally, Intent, Stride};
-pub use observations::Occupancy;
 
-use crate::{interactions, phenotype, Organism, OrganismId, Population};
+use crate::{interactions, phenotype, CellIndex, Organism, OrganismId, Population};
 use ecosym_core::Rng;
 use ecosym_genetics::{
     mutate, mutate_brain, recombine, recombine_brain, Genes, Genome, GenomeId, NeuralGenome,
@@ -57,7 +56,7 @@ pub fn live_one_tick(
     o: &Organism,
     species: usize,
     world: &mut World,
-    occupancy: &Occupancy,
+    occupancy: &CellIndex,
     wander: &mut Rng,
 ) -> (Organism, Act) {
     let genes = *o.genes();
@@ -201,8 +200,8 @@ mod tests {
         Organism::new(ids.0.mint(), Genome::founder(ids.1.mint(), genes, brain(4)), x, y, energy)
     }
 
-    fn occupancy(world: &World) -> Occupancy {
-        let mut o = Occupancy::default();
+    fn occupancy(world: &World) -> CellIndex {
+        let mut o = CellIndex::default();
         o.rebuild(&[], world);
         o
     }

@@ -96,8 +96,8 @@ impl std::error::Error for EngineError {}
 /// 2. visit every snapshot organism exactly once, in a permutation derived from
 ///    (seed, epoch, tick) on a stream independent of the behaviour and
 ///    reproduction streams;
-/// 3. rebuild the per-tile occupancy snapshot every organism observes, with
-///    [`ecosym_ecology::Occupancy::rebuild`];
+/// 3. rebuild the per-cell spatial index every organism observes, with
+///    [`ecosym_ecology::CellIndex::rebuild`];
 /// 4. apply [`ecosym_ecology::behavior::live_one_tick`] - observe, run the
 ///    inherited policy, move, forage the shared field, pay upkeep, age;
 /// 5. apply [`ecosym_ecology::behavior::conceive`], passing the policy's own

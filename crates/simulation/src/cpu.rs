@@ -8,7 +8,7 @@
 use crate::epoch::{EngineError, EpochEngine, EpochEvents, Tick};
 use crate::state::SimulationState;
 use ecosym_core::{derive_seed, hash_u64, Rng};
-use ecosym_ecology::{behavior, Conception, Occupancy};
+use ecosym_ecology::{behavior, CellIndex, Conception};
 
 /// a birth conceived during the visit pass and admitted afterwards. ids are
 /// minted at admission, so a birth the ceiling refuses never burns one.
@@ -32,8 +32,8 @@ pub struct CpuEngine {
     handles: Vec<(usize, usize)>,
     /// who is standing where, as of the start of the current tick. derived
     /// state, so it belongs to the backend rather than to `SimulationState` -
-    /// what it *means* is ecology's, in `Occupancy`.
-    occupancy: Occupancy,
+    /// what it *means* is ecology's, in `CellIndex`.
+    occupancy: CellIndex,
 }
 
 impl CpuEngine {
@@ -46,7 +46,7 @@ impl CpuEngine {
             reproduction: Rng::new(derive_seed(seed, "reproduction")),
             max_population,
             handles: Vec::new(),
-            occupancy: Occupancy::default(),
+            occupancy: CellIndex::default(),
         }
     }
 

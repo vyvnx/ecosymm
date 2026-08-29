@@ -13,19 +13,24 @@ workload is worth moving to a device at all.
 - host: AMD Ryzen 7 5800XT (8 cores), Linux 6.18 (WSL2), rustc 1.98.0
 - build: `cargo run --release` (`lto = "thin"`, `codegen-units = 1`)
 - engine: `cpu`, single-threaded
-- recorded: 2026-08-28, with evolved neural behaviour, impassable sea and
-  resource dispersal
+- recorded: 2026-08-29, with evolved neural behaviour, impassable sea, resource
+  dispersal, wander charged as movement effort, and the CSR cell index
 
 Default scenario - two species, 500 founders each, 500 epochs of 20 ticks
 (10,000 ticks total) on a 128x128 world:
 
-| metric | value |
-| --- | --- |
-| wall clock | 24.5 s |
-| peak total population | 5,100 |
-| final population | 4,658 (A 2,220 / B 2,438) |
-| throughput | ~20 epochs/s, ~2.0M organism-ticks/s |
-| replay digest | `4d8a1fd0975a2c99` |
+| metric | value | 2026-08-28 |
+| --- | --- | --- |
+| wall clock | 22.7 s | 24.5 s |
+| peak total population | 5,010 | 5,100 |
+| final population | 4,851 (A 2,644 / B 2,207) | 4,658 |
+| throughput | ~22 epochs/s, ~2.0M organism-ticks/s | ~20 epochs/s |
+| replay digest | `097cb3921e4c0ecb` | `4d8a1fd0975a2c99` |
+
+The digest moved because the per-tick wander stopped being free displacement and
+became part of the intended stride - see
+`experiments/2026-08-29-wander-is-paid-movement`. Organisms now buy the distance
+they cover, so the same world holds slightly fewer of them.
 
 ### What the policy costs
 
@@ -48,13 +53,33 @@ The softsign swap is one line in `crates/genetics/src/neural_genome.rs` and is
 documented there. It is not taken because 21 s is fast enough and `tanh` is the
 shape a reader expects; re-record this table if that changes.
 
-Founder count vs wall clock, 200 epochs:
+Founder count vs wall clock, 200 epochs, with the `Occupancy` tile counts and
+the CSR cell index that replaced them measured back to back on the same host:
 
-| founders per species | seconds | peak total population |
+| founders per species | occupancy | cell index | peak total population |
+| --- | --- | --- | --- |
+| 125 | 8.10 s | 8.15 s | 2,495 |
+| 500 | 8.31 s | 8.47 s | 5,010 |
+| 2000 | 8.59 s | 8.98 s | 5,138 |
+
+The index costs 2-5% and buys contiguous per-cell membership. Its own cost,
+measured directly at populations the default world cannot sustain
+(`cargo test --release -p ecosym-ecology -- --ignored --nocapture`):
+
+| organisms | spread over the map | all on one tile |
 | --- | --- | --- |
-| 125 | 7.72 | 2,496 |
-| 500 | 8.66 | 5,042 |
-| 2000 | 9.71 | 5,137 |
+| 5,000 | 51 us/rebuild | 78 us/rebuild |
+| 10,000 | 114 us/rebuild | 106 us/rebuild |
+
+Linear in population and flat against clustering, which is the property a
+counting sort is chosen for: the clustered worst case is a longer run of writes
+into one bucket, not a scan. A tick at 5,000 organisms costs about 2.1 ms, so
+the index is ~2.4% of it.
+
+**Carrying capacity, not the ceiling, is why 10,000 organisms do not appear in
+the CLI rows.** The 128x128 world saturates near 5,100 whatever it is founded
+with, so the 10,000-organism target has to be measured on the index directly
+until a world-size option exists.
 
 At 500 and 2,000 founders the population saturates near 5,000: carrying capacity
 binds and the extra founders buy nothing but a slower start. The 125-founder row
