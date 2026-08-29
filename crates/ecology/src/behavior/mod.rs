@@ -26,8 +26,10 @@ use ecosym_genetics::{
 };
 use ecosym_world::World;
 
-/// half-width of the wander applied on top of a chosen stride, so organisms do
-/// not collapse onto identical trajectories
+/// half-width of the wander folded into a chosen heading, so organisms do not
+/// collapse onto identical trajectories. it is part of the intended
+/// displacement, so it is capped, suppressed by rest and paid for like any
+/// other movement.
 pub const MOVE_NOISE: f32 = 0.3;
 
 pub fn can_reproduce(o: &Organism) -> bool {
@@ -62,13 +64,9 @@ pub fn live_one_tick(
     let view = observations::scan(&genes, world, o.x, o.y);
     let inputs = observations::observe(o, species, world, occupancy, &view);
     let intent = neural_policy::decide(o.brain(), &inputs);
-    let stride = actions::stride(&genes, &intent, view.gradient);
-
-    let wanted = (
-        o.x + stride.dx + wander.between(-MOVE_NOISE, MOVE_NOISE),
-        o.y + stride.dy + wander.between(-MOVE_NOISE, MOVE_NOISE),
-    );
-    let (x, y) = walkable(world, (o.x, o.y), wanted);
+    let noise = (wander.between(-MOVE_NOISE, MOVE_NOISE), wander.between(-MOVE_NOISE, MOVE_NOISE));
+    let stride = actions::stride(&genes, &intent, view.gradient, noise);
+    let (x, y) = walkable(world, (o.x, o.y), (o.x + stride.dx, o.y + stride.dy));
 
     let mut next = *o;
     next.x = x;
@@ -311,23 +309,112 @@ mod tests {
         assert_eq!(walkable(&world, (x, y), (sx, sy)), (x, y));
     }
 
-    /// blocked or not, the tick is paid for. resting is the only thing that
-    /// makes movement cheap, and bumping the shore is not resting.
-    #[test]
-    fn a_step_the_terrain_refuses_still_costs_what_it_would_have_cost() {
-        let mut world = World::generate(1234, 64, 64);
-        let seen = occupancy(&world);
+    /// a brain with no hidden layer contribution and fixed output biases, so a
+    /// movement test can say exactly what the policy asked for
+    fn fixed_intent(output_biases: [f32; 5]) -> NeuralGenome {
+        let mut brain = NeuralGenome::default();
+        brain.biases[ecosym_genetics::HIDDEN..].copy_from_slice(&output_biases);
+        brain
+    }
+
+    /// run one tick on a world with nothing left to eat, so intake cannot mask
+    /// the metabolic bill, and report what the tick charged and where it ended
+    fn tick_bill(world: &mut World, o: &Organism) -> (f32, (f32, f32)) {
+        for i in 0..world.width() * world.height() {
+            world.harvest(i, 1e6);
+        }
+        let seen = occupancy(world);
+        let (after, _) = live_one_tick(o, 0, world, &seen, &mut Rng::new(4));
+        (o.energy - after.energy, (after.x, after.y))
+    }
+
+    fn subject(brain: NeuralGenome, x: f32, y: f32) -> Organism {
         let (mut o, mut g) = (OrganismIds::default(), GenomeIds::default());
         let genes = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
+        Organism::new(o.mint(), Genome::founder(g.mint(), genes, brain), x, y, 50.0)
+    }
 
-        let (x, y) = world.random_land(&mut Rng::new(7));
-        let subject =
-            Organism::new(o.mint(), Genome::founder(g.mint(), genes, brain(3)), x, y, 50.0);
-        let (after, act) = live_one_tick(&subject, 0, &mut world, &seen, &mut Rng::new(4));
-        // whatever happened, it aged and paid at least its basal cost
-        assert_eq!(after.age, subject.age + 1);
-        assert!(after.energy <= subject.energy + phenotype::intake(&genes));
-        assert!(act.moved >= 0.0 && act.moved.is_finite());
+    /// resting is the only thing that makes a tick cheap, and it has to
+    /// suppress the wander too - otherwise every organism drifts for free and
+    /// standing still is not a strategy anyone can be selected for.
+    #[test]
+    fn resting_pays_the_basal_bill_and_nothing_for_the_wander() {
+        let mut world = World::generate(1234, 32, 32);
+        let (x, y) = inland(&world);
+        let genes = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
+        let resting = subject(fixed_intent([0.0, 0.0, -4.0, 0.0, 4.0]), x, y);
+
+        let (paid, ended) = tick_bill(&mut world, &resting);
+        assert!(
+            (paid - phenotype::basal_cost(&genes)).abs() < 1e-3,
+            "a resting tick charged {paid}, not the basal {}",
+            phenotype::basal_cost(&genes)
+        );
+        assert!(
+            (ended.0 - x).abs() < 1e-2 && (ended.1 - y).abs() < 1e-2,
+            "it drifted while resting"
+        );
+    }
+
+    /// the wander is displacement the organism did not ask for but still made,
+    /// so it is displacement it pays for
+    #[test]
+    fn an_indifferent_policy_still_pays_for_the_distance_the_wander_moved_it() {
+        let mut world = World::generate(1234, 32, 32);
+        let (x, y) = inland(&world);
+        let genes = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
+        let idle = subject(NeuralGenome::default(), x, y);
+
+        let (paid, ended) = tick_bill(&mut world, &idle);
+        assert_ne!(ended, (x, y), "the wander moved nobody, so this test proves nothing");
+        assert!(paid > phenotype::basal_cost(&genes), "wandering was free: {paid}");
+        assert!(paid <= phenotype::upkeep(&genes, 1.0) + 1e-6);
+    }
+
+    #[test]
+    fn a_policy_that_walks_pays_for_the_stride_it_took() {
+        let mut world = World::generate(1234, 32, 32);
+        let (x, y) = inland(&world);
+        let genes = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
+        let walker = subject(fixed_intent([4.0, 4.0, -4.0, 0.0, -4.0]), x, y);
+
+        let (paid, ended) = tick_bill(&mut world, &walker);
+        assert_ne!(ended, (x, y));
+        assert!((paid - phenotype::upkeep(&genes, 1.0)).abs() < 1e-3, "full effort charged {paid}");
+    }
+
+    /// walking into a cliff costs exactly what walking anywhere else would.
+    /// the effort is spent on the attempt, not refunded by the terrain.
+    #[test]
+    fn a_step_the_shore_refuses_costs_what_the_same_step_inland_would() {
+        let mut world = World::generate(1234, 64, 64);
+        let w = world.width();
+        // land with sea north, east and north-east: every fallback `walkable`
+        // has for a north-east step is also sea, so the step cannot land
+        let cornered = world
+            .land()
+            .iter()
+            .copied()
+            .find(|i| {
+                let (x, y) = ((i % w) as f32 + 0.5, (i / w) as f32 + 0.5);
+                [(1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]
+                    .iter()
+                    .all(|(dx, dy)| !world.is_passable(world.idx(x + dx, y + dy)))
+            })
+            .expect("no such corner of coast here, so the test proves nothing");
+        let (x, y) = ((cornered % w) as f32 + 0.5, (cornered / w) as f32 + 0.5);
+
+        let genes = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
+        // hard north-east, no seeking, no rest: the wander cannot flip either sign
+        let blocked = subject(fixed_intent([4.0, 4.0, -4.0, 0.0, -4.0]), x, y);
+
+        let (paid, ended) = tick_bill(&mut world, &blocked);
+        assert_eq!(ended, (x, y), "the shore let it through, so this test proves nothing");
+        assert!(
+            (paid - phenotype::upkeep(&genes, 1.0)).abs() < 1e-3,
+            "a refused step was charged {paid}, not the {} it intended",
+            phenotype::upkeep(&genes, 1.0)
+        );
     }
 
     #[test]

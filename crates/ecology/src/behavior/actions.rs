@@ -51,15 +51,21 @@ pub struct Stride {
 }
 
 /// blend the policy's own heading with the local food gradient in the
-/// proportion it asked for, then cap the result at what this body can do.
+/// proportion it asked for, add the tick's wander, then cap the result at what
+/// this body can do.
 ///
 /// `seek` is the only channel through which the food gradient reaches
 /// movement, and the organism sets it: a policy is free to evolve to ignore
 /// food entirely, wander on its own heading, or stand still.
-pub fn stride(g: &Genes, intent: &Intent, gradient: (f32, f32)) -> Stride {
+///
+/// `wander` is part of the *intended* displacement, not a free offset bolted on
+/// afterwards. it therefore lands inside the stride cap, is suppressed by rest
+/// along with everything else, and is paid for as movement effort - a resting
+/// organism is genuinely still, and nobody drifts for nothing.
+pub fn stride(g: &Genes, intent: &Intent, gradient: (f32, f32), wander: (f32, f32)) -> Stride {
     let heading = (
-        intent.east_west * (1.0 - intent.seek) + gradient.0 * intent.seek,
-        intent.north_south * (1.0 - intent.seek) + gradient.1 * intent.seek,
+        intent.east_west * (1.0 - intent.seek) + gradient.0 * intent.seek + wander.0,
+        intent.north_south * (1.0 - intent.seek) + gradient.1 * intent.seek + wander.1,
     );
     let len = (heading.0 * heading.0 + heading.1 * heading.1).sqrt();
     if len <= f32::EPSILON {
@@ -177,31 +183,35 @@ mod tests {
     fn a_stride_never_exceeds_one_step_whatever_the_policy_asks() {
         let g = genes(2.0);
         for (ew, ns) in [(1.0, 1.0), (-1.0, 1.0), (1.0, 0.0), (0.3, -0.9)] {
-            let s = stride(&g, &intent(ew, ns, 0.0, 0.0), (0.0, 0.0));
+            let s = stride(&g, &intent(ew, ns, 0.0, 0.0), (0.0, 0.0), (0.0, 0.0));
             let travelled = (s.dx * s.dx + s.dy * s.dy).sqrt();
             assert!(travelled <= phenotype::step_length(&g) + 1e-5, "{travelled}");
             assert!((0.0..=1.0).contains(&s.effort));
         }
     }
 
+    /// rest suppresses the whole intended displacement, wander included
     #[test]
     fn resting_costs_nothing_and_goes_nowhere() {
-        let s = stride(&genes(2.0), &intent(1.0, 1.0, 0.0, 1.0), (1.0, 0.0));
+        let s = stride(&genes(2.0), &intent(1.0, 1.0, 0.0, 1.0), (1.0, 0.0), (0.4, -0.2));
         assert_eq!(s.effort, 0.0);
         assert_eq!((s.dx, s.dy), (0.0, 0.0));
     }
 
     #[test]
     fn a_policy_with_no_heading_and_no_seeking_stands_still() {
-        assert_eq!(stride(&genes(1.0), &intent(0.0, 0.0, 0.0, 0.0), (1.0, 0.0)), Stride::default());
+        assert_eq!(
+            stride(&genes(1.0), &intent(0.0, 0.0, 0.0, 0.0), (1.0, 0.0), (0.0, 0.0)),
+            Stride::default()
+        );
     }
 
     #[test]
     fn seeking_hands_the_heading_over_to_the_gradient() {
         let g = genes(1.0);
         // the policy wants to go west, the food is east. at seek 1 the food wins.
-        let ignored = stride(&g, &intent(-1.0, 0.0, 0.0, 0.0), (1.0, 0.0));
-        let followed = stride(&g, &intent(-1.0, 0.0, 1.0, 0.0), (1.0, 0.0));
+        let ignored = stride(&g, &intent(-1.0, 0.0, 0.0, 0.0), (1.0, 0.0), (0.0, 0.0));
+        let followed = stride(&g, &intent(-1.0, 0.0, 1.0, 0.0), (1.0, 0.0), (0.0, 0.0));
         assert!(ignored.dx < 0.0, "the policy's own heading was overridden");
         assert!(followed.dx > 0.0, "seeking did not reach the gradient");
     }
