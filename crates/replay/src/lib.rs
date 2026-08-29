@@ -41,6 +41,9 @@ impl Recorder {
             // the evolving neural genes and what they did. a run whose brains
             // drift differently is a different run, and the digest has to say so.
             self.digest = hash_f32(self.digest, s.mean_brain);
+            // and the lifetime memory those genes are steering with. aggregate
+            // behaviour alone cannot prove two recurrent states are the same.
+            self.digest = hash_u64(self.digest, s.recurrent_signature);
             // every descriptive channel, means then variances, in the one fixed
             // order `BehaviorStats::channels` defines. two epochs can share a
             // mean and differ in spread, so both are folded.
@@ -85,6 +88,7 @@ mod tests {
             behavior: BehaviorStats::default(),
             behavior_variance: BehaviorStats::default(),
             mean_brain: 0.0,
+            recurrent_signature: 0,
         }
     }
 
@@ -173,6 +177,11 @@ mod tests {
         assert_ne!(baseline, with(|s| s.mean_brain = 0.01), "neural weights miss the digest");
         assert_ne!(baseline, with(|s| s.behavior.movement = 0.01));
         assert_ne!(baseline, with(|s| s.behavior.resource_tracking = 0.01));
+        assert_ne!(
+            baseline,
+            with(|s| s.recurrent_signature = 1),
+            "lifetime memory misses the digest"
+        );
         assert_ne!(baseline, with(|s| s.behavior_variance.movement = 0.01));
         assert_ne!(baseline, with(|s| s.behavior.reproduction = 0.01));
         assert_ne!(baseline, with(|s| s.behavior.resting = 0.01));

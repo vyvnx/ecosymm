@@ -62,13 +62,17 @@ pub fn live_one_tick(
     let genes = *o.genes();
     let view = observations::scan(&genes, world, occupancy, species, o.x, o.y);
     let inputs = observations::observe(o, world, &view);
-    let intent = neural_policy::decide(o.brain(), &inputs);
+
+    // the one thing a tick may write back into the organism. `next` is taken
+    // first so the memory advances on the body that goes on living, and the
+    // caller's `o` is left exactly as it was.
+    let mut next = *o;
+    let intent = neural_policy::decide(o.brain(), &inputs, &mut next.hidden);
 
     let noise = (wander.between(-MOVE_NOISE, MOVE_NOISE), wander.between(-MOVE_NOISE, MOVE_NOISE));
     let stride = actions::stride(&genes, &intent, noise);
     let (x, y) = walkable(world, (o.x, o.y), (o.x + stride.dx, o.y + stride.dy));
 
-    let mut next = *o;
     next.x = x;
     next.y = y;
     let moved = (next.x - o.x, next.y - o.y);

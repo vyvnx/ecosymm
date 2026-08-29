@@ -1,4 +1,4 @@
-//! the inherited brain: one fixed-topology feed-forward network, stored as flat
+//! the inherited brain: one fixed-topology recurrent network, stored as flat
 //! numeric arrays.
 //!
 //! genetics owns the numbers and the forward pass that gives them meaning. what
@@ -7,8 +7,9 @@
 
 use ecosym_core::Rng;
 
-/// 12 -> 8 -> 4, identical for every organism in the run. only the numbers
-/// evolve; evolving the topology itself (NEAT and friends) is out of scope.
+/// 12 -> 8 recurrent -> 4, identical for every organism in the run. only the
+/// numbers evolve; evolving the topology itself (NEAT and friends) is out of
+/// scope.
 ///
 /// the input count is the observation contract in `ecology::observations` and
 /// the output count is the decode in `ecology::actions`. all three move
@@ -17,8 +18,18 @@ pub const INPUTS: usize = 12;
 pub const HIDDEN: usize = 8;
 pub const OUTPUTS: usize = 4;
 
-pub const WEIGHT_COUNT: usize = INPUTS * HIDDEN + HIDDEN * OUTPUTS;
+/// the Elman layer: every hidden neuron sees every hidden activation from the
+/// previous tick, so the eight values are a working memory the policy carries
+/// and not a second copy of the observations.
+pub const RECURRENT_COUNT: usize = HIDDEN * HIDDEN;
+
+pub const WEIGHT_COUNT: usize = INPUTS * HIDDEN + RECURRENT_COUNT + HIDDEN * OUTPUTS;
 pub const BIAS_COUNT: usize = HIDDEN + OUTPUTS;
+
+/// offset of the recurrent block inside `weights`
+pub const RECURRENT_AT: usize = INPUTS * HIDDEN;
+/// offset of the hidden->output block inside `weights`
+pub const OUTPUT_AT: usize = RECURRENT_AT + RECURRENT_COUNT;
 
 /// weights clamp here, so a long mutation chain cannot walk off to infinity and
 /// take the forward pass with it
@@ -38,9 +49,13 @@ pub const FOUNDER_WEIGHT: f32 = 1.0;
 /// a brain. two contiguous `f32` arrays and nothing else: no map, no graph, no
 /// boxed neuron, so a device buffer is a memcpy away when one is wanted.
 ///
-/// `weights` is input->hidden first, `HIDDEN` rows of `INPUTS`, then
-/// hidden->output, `OUTPUTS` rows of `HIDDEN`. `biases` is the hidden layer
-/// then the output layer.
+/// `weights` is input->hidden first, `HIDDEN` rows of `INPUTS`, then the
+/// recurrent block, `HIDDEN` rows of `HIDDEN`, then hidden->output, `OUTPUTS`
+/// rows of `HIDDEN`. `biases` is the hidden layer then the output layer.
+///
+/// the hidden *activations* are not in here. they are mutable organism state
+/// that starts at zero and dies with the body - see `Organism::hidden`. a
+/// newborn inherits its parents' weights and none of their memory.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NeuralGenome {
     pub weights: [f32; WEIGHT_COUNT],
@@ -67,29 +82,41 @@ impl NeuralGenome {
     /// one forward pass. `tanh` on both layers, so every output is in -1..1 and
     /// the caller never has to defend against an unbounded tendency.
     ///
+    /// `hidden` is read as last tick's activations and overwritten with this
+    /// tick's. the whole previous vector is read before any of it is replaced -
+    /// updating in place would make neuron 7 see a half-new state that neuron 0
+    /// did not, and the answer would depend on the order of a loop.
+    ///
+    /// nothing here learns. the weights are what the organism inherited and the
+    /// state is what it has seen; no gradient, no reward and no write ever
+    /// reaches the genome.
+    ///
     /// ponytail: `tanh` is 12 libm calls per organism-tick and about half the
     /// wall clock of a default run (21.6s against 10.0s measured with the
     /// softsign `x / (1 + |x|)`, which evolves just as well and is bit-identical
     /// across platforms). kept because it is the standard shape and the run is
     /// fast enough; swap it here, in one line, if the tick loop ever becomes
     /// the thing worth optimising - and re-record `benchmarks/` when you do.
-    pub fn forward(&self, inputs: &[f32; INPUTS]) -> [f32; OUTPUTS] {
-        let mut hidden = [0.0f32; HIDDEN];
-        for (h, neuron) in hidden.iter_mut().enumerate() {
-            let row = &self.weights[h * INPUTS..(h + 1) * INPUTS];
+    pub fn forward(&self, inputs: &[f32; INPUTS], hidden: &mut [f32; HIDDEN]) -> [f32; OUTPUTS] {
+        let mut next = [0.0f32; HIDDEN];
+        for (h, neuron) in next.iter_mut().enumerate() {
             let mut sum = self.biases[h];
-            for (w, x) in row.iter().zip(inputs) {
+            for (w, x) in self.weights[h * INPUTS..(h + 1) * INPUTS].iter().zip(inputs) {
                 sum += w * x;
+            }
+            let row = &self.weights[RECURRENT_AT + h * HIDDEN..RECURRENT_AT + (h + 1) * HIDDEN];
+            for (w, m) in row.iter().zip(hidden.iter()) {
+                sum += w * m;
             }
             *neuron = sum.tanh();
         }
+        *hidden = next;
 
-        let second = INPUTS * HIDDEN;
         let mut outputs = [0.0f32; OUTPUTS];
         for (o, neuron) in outputs.iter_mut().enumerate() {
-            let row = &self.weights[second + o * HIDDEN..second + (o + 1) * HIDDEN];
+            let row = &self.weights[OUTPUT_AT + o * HIDDEN..OUTPUT_AT + (o + 1) * HIDDEN];
             let mut sum = self.biases[HIDDEN + o];
-            for (w, h) in row.iter().zip(&hidden) {
+            for (w, h) in row.iter().zip(hidden.iter()) {
                 sum += w * h;
             }
             *neuron = sum.tanh();
@@ -128,7 +155,7 @@ impl NeuralGenome {
     }
 
     /// mean of every weight and bias. a compact signature of the whole brain,
-    /// so neural genes reach the replay digest without hashing 140 floats per
+    /// so neural genes reach the replay digest without hashing 204 floats per
     /// organism per epoch.
     pub fn mean(&self) -> f32 {
         self.genes().sum::<f32>() / (WEIGHT_COUNT + BIAS_COUNT) as f32
@@ -160,10 +187,19 @@ mod tests {
         [v; INPUTS]
     }
 
+    /// the memory a newborn has
+    fn fresh() -> [f32; HIDDEN] {
+        [0.0; HIDDEN]
+    }
+
     #[test]
     fn the_topology_is_fixed_and_the_arrays_match_it() {
-        assert_eq!(WEIGHT_COUNT, 12 * 8 + 8 * 4);
+        assert_eq!(WEIGHT_COUNT, 12 * 8 + 8 * 8 + 8 * 4);
         assert_eq!(BIAS_COUNT, 8 + 4);
+        // the three blocks tile `weights` exactly, with nothing between them
+        assert_eq!(RECURRENT_AT, 12 * 8);
+        assert_eq!(OUTPUT_AT, 12 * 8 + 8 * 8);
+        assert_eq!(OUTPUT_AT + HIDDEN * OUTPUTS, WEIGHT_COUNT);
         let brain = NeuralGenome::default();
         assert_eq!(brain.genes().count(), WEIGHT_COUNT + BIAS_COUNT);
     }
@@ -171,26 +207,47 @@ mod tests {
     #[test]
     fn the_forward_pass_is_deterministic_and_bounded() {
         let brain = NeuralGenome::random(&mut Rng::new(7));
-        let a = brain.forward(&inputs(0.3));
-        assert_eq!(a, brain.forward(&inputs(0.3)));
-        assert_ne!(a, brain.forward(&inputs(0.9)));
+        // same brain, same inputs, same memory - same answer, every time
+        let a = brain.forward(&inputs(0.3), &mut fresh());
+        assert_eq!(a, brain.forward(&inputs(0.3), &mut fresh()));
+        assert_ne!(a, brain.forward(&inputs(0.9), &mut fresh()));
 
-        // saturating inputs and clamped weights still cannot leave -1..1
+        // saturating inputs, clamped weights and a saturated memory still
+        // cannot leave -1..1
         let hot = NeuralGenome {
             weights: [WEIGHT_BOUNDS.1; WEIGHT_COUNT],
             biases: [WEIGHT_BOUNDS.1; BIAS_COUNT],
         };
-        for out in hot.forward(&inputs(1.0)) {
+        let mut memory = [1.0f32; HIDDEN];
+        for out in hot.forward(&inputs(1.0), &mut memory) {
             assert!((-1.0..=1.0).contains(&out), "{out}");
         }
+        assert!(memory.iter().all(|h| (-1.0..=1.0).contains(h)), "{memory:?}");
+    }
+
+    /// the recurrent block must read the whole previous state before any of it
+    /// is replaced. updating in place would make neuron 7 see a half-new vector
+    /// neuron 0 did not, and the answer would depend on a loop's direction.
+    #[test]
+    fn every_hidden_neuron_sees_the_same_previous_state() {
+        let mut brain = NeuralGenome::default();
+        // neuron 0 copies memory[0]; neuron 1 copies neuron 0's *previous*
+        // activation, which is memory[0] as well - never the value 0 has just
+        // taken this tick
+        brain.weights[RECURRENT_AT] = 4.0;
+        brain.weights[RECURRENT_AT + HIDDEN] = 4.0;
+        let mut memory = [0.0f32; HIDDEN];
+        memory[0] = 1.0;
+        brain.forward(&inputs(0.0), &mut memory);
+        assert!((memory[0] - memory[1]).abs() < 1e-6, "{memory:?}");
     }
 
     #[test]
     fn a_zero_brain_answers_zero_and_biases_alone_move_the_output() {
-        assert_eq!(NeuralGenome::default().forward(&inputs(1.0)), [0.0; OUTPUTS]);
+        assert_eq!(NeuralGenome::default().forward(&inputs(1.0), &mut fresh()), [0.0; OUTPUTS]);
         let mut biased = NeuralGenome::default();
         biased.biases[HIDDEN] = 1.0;
-        assert!(biased.forward(&inputs(0.0))[0] > 0.5);
+        assert!(biased.forward(&inputs(0.0), &mut fresh())[0] > 0.5);
     }
 
     #[test]
@@ -200,7 +257,10 @@ mod tests {
             (0..200).map(|_| NeuralGenome::random(&mut rng)).collect();
         assert!(founders.iter().all(|b| b.in_bounds() && b.is_finite()));
         assert_ne!(founders[0], founders[1]);
-        assert_ne!(founders[0].forward(&inputs(0.4)), founders[1].forward(&inputs(0.4)));
+        assert_ne!(
+            founders[0].forward(&inputs(0.4), &mut fresh()),
+            founders[1].forward(&inputs(0.4), &mut fresh())
+        );
     }
 
     #[test]

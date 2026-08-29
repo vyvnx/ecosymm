@@ -110,6 +110,7 @@ fn genericity_case(new_engine: &EngineFactory<'_>, species: usize) {
         accounting_balances(&state, &before, &events, engine.id());
         every_survivor_was_visited_each_tick(&state, &ages, cfg.ticks_per_epoch, engine.id());
         every_survivor_ran_its_policy(&state, &ages, &events, cfg.ticks_per_epoch, engine.id());
+        lifetime_memory_belongs_to_the_body(&state, &ages, engine.id());
         census.check(&state, engine.id());
         world_stays_within_bounds(&state, engine.id());
         everybody_is_standing_on_land(&state, engine.id());
@@ -200,6 +201,40 @@ fn every_survivor_ran_its_policy(
     }
 }
 
+/// hidden state is the organism's, not the genome's. a backend that kept one
+/// scratch buffer per thread, or wrote memory back into the brain, or handed a
+/// newborn its parent's state, would still balance its books and still run
+/// everybody's policy - so check the two ends directly.
+///
+/// a newborn is any organism the previous epoch had never seen. its memory has
+/// to be zero, because it has not observed anything yet. a survivor's memory
+/// has to be bounded, because `tanh` produced it.
+fn lifetime_memory_belongs_to_the_body(
+    state: &SimulationState,
+    ages_before: &HashMap<u64, u32>,
+    engine: &str,
+) {
+    for species in &state.species {
+        for o in species.population().organisms() {
+            assert!(
+                o.hidden.iter().all(|h| (-1.0..=1.0).contains(h)),
+                "{engine}: organism {} carries a hidden activation outside -1..1: {:?}",
+                o.id().get(),
+                o.hidden
+            );
+            // born during this epoch, and not yet through a full one
+            if !ages_before.contains_key(&o.id().get()) && o.age == 0 {
+                assert_eq!(
+                    o.hidden,
+                    [0.0; ecosym_genetics::HIDDEN],
+                    "{engine}: newborn {} was handed memory it did not earn",
+                    o.id().get()
+                );
+            }
+        }
+    }
+}
+
 fn world_stays_within_bounds(state: &SimulationState, engine: &str) {
     for (i, standing) in state.world.resources().iter().enumerate() {
         assert!(
@@ -263,8 +298,8 @@ fn determinism(new_engine: &EngineFactory<'_>) {
     assert_eq!(run(), run(), "the engine is not deterministic for a fixed seed");
 }
 
-/// (organism id, genome id, x, y, energy, age, mean brain)
-type OrganismRow = (u64, u64, f32, f32, f32, u32, f32);
+/// (organism id, genome id, x, y, energy, age, mean brain, hidden state)
+type OrganismRow = (u64, u64, f32, f32, f32, u32, f32, [f32; ecosym_genetics::HIDDEN]);
 
 fn snapshot(state: &SimulationState) -> Vec<(u32, Vec<OrganismRow>)> {
     state
@@ -285,6 +320,7 @@ fn snapshot(state: &SimulationState) -> Vec<(u32, Vec<OrganismRow>)> {
                             o.energy,
                             o.age,
                             o.brain().mean(),
+                            o.hidden,
                         )
                     })
                     .collect(),

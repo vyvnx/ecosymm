@@ -3,6 +3,7 @@
 
 use crate::epoch::EpochEvents;
 use crate::state::SimulationState;
+use ecosym_core::{hash_f32, hash_u64, HASH_INIT};
 use ecosym_ecology::{BehaviorStats, Species};
 use ecosym_genetics::{Genes, NeuralGenome};
 use serde::{Deserialize, Serialize};
@@ -24,8 +25,16 @@ pub struct SpeciesStats {
     pub behavior_variance: BehaviorStats,
     /// mean of every weight and bias across the living population. a compact
     /// signature that puts the evolving neural genes into the replay digest
-    /// without hashing 140 floats per organism.
+    /// without hashing 204 floats per organism.
     pub mean_brain: f32,
+    /// every living organism's hidden state, hashed in canonical order.
+    ///
+    /// a mean would not do here the way it does for the brain: hidden state is
+    /// what an organism has *seen*, so two populations can hold the same
+    /// average memory and remember entirely different things. the aggregate
+    /// behaviour report cannot tell them apart either, which is why this is a
+    /// hash of the whole thing and not a summary of it.
+    pub recurrent_signature: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -111,7 +120,23 @@ pub fn species_stats(
         behavior,
         behavior_variance,
         mean_brain: mean_brain(species),
+        recurrent_signature: recurrent_signature(species),
     }
+}
+
+/// hash every living organism's working memory, in the one order the model
+/// guarantees: stable population order, each organism's id, then its hidden
+/// activations in component order. an engine that schedules differently but
+/// stores the same state produces the same number.
+pub fn recurrent_signature(species: &Species) -> u64 {
+    let mut h = HASH_INIT;
+    for o in species.population().organisms() {
+        h = hash_u64(h, o.id().get());
+        for v in o.hidden {
+            h = hash_f32(h, v);
+        }
+    }
+    h
 }
 
 pub fn report(state: &SimulationState, events: &EpochEvents) -> EpochReport {

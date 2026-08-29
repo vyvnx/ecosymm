@@ -26,6 +26,7 @@ fn stats(id: u32, population: usize) -> SpeciesStats {
         },
         behavior_variance: BehaviorStats::default(),
         mean_brain: 0.0,
+        recurrent_signature: 0,
     }
 }
 

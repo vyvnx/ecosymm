@@ -99,13 +99,17 @@ impl std::error::Error for EngineError {}
 /// 3. rebuild the per-cell spatial index every organism observes, with
 ///    [`ecosym_ecology::CellIndex::rebuild`];
 /// 4. apply [`ecosym_ecology::behavior::live_one_tick`] - observe, run the
-///    inherited policy, move, forage the shared field, pay upkeep, age;
+///    inherited policy against **this organism's own** hidden state, move,
+///    forage the shared field, pay upkeep, age. the returned organism carries
+///    the advanced memory and is what must be stored back; a shared or
+///    per-thread scratch buffer forks the model;
 /// 5. apply [`ecosym_ecology::behavior::conceive`], passing the policy's own
 ///    reproductive pressure - eligibility, a mate from the same population,
 ///    recombination then birth-time mutation of genes and brain alike;
 /// 6. after the pass, admit conceptions with
 ///    [`ecosym_ecology::Conception::birth`], subject to the backend's own
-///    population ceiling, applied fairly across species;
+///    population ceiling, applied fairly across species. a newborn's hidden
+///    state is zero: weights are inherited, memory is not;
 /// 7. remove the dead with `Population::retain_living`, which is stable;
 /// 8. regrow the world; and
 /// 9. accumulate births, deaths and behavioural tallies per species.

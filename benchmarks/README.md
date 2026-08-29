@@ -66,6 +66,31 @@ them (2,496 / 4,952 / 5,128). The world, not the founding stock, is what decides
 how many organisms it holds - which is what carrying capacity binding looks like,
 and it was not binding before.
 
+### What the recurrence costs
+
+`12 -> 8 recurrent -> 4` against the feed-forward `12 -> 8 -> 4` at the same
+productivity, seed 1234, 500 epochs:
+
+| metric | recurrent | feed-forward |
+| --- | ---: | ---: |
+| wall clock | 111.1 s | 67.7 s |
+| final population | 8,638 | 8,807 |
+| multiply-accumulates per organism-tick | 192 | 128 |
+| `tanh` calls | 12 | 12 |
+| genome | 204 numbers | 140 |
+| organism state | +8 `f32` | - |
+| replay digest | `4aa51da60fc894eb` | `cef4dae3963e179e` |
+
+1.64x for 1.5x the arithmetic at the same population; the rest is the recurrent
+block being a second strided read per neuron. Behaviour is
+`experiments/2026-08-29-lifetime-memory-buys-persistence`.
+
+The softsign gate in `docs/adr/0009` was measured at the same time: the same
+scenario, the same seed, `x / (1 + |x|)` in place of `tanh` on both layers, runs
+in **77.3 s** with both species still alive. That is a 1.44x speedup and it is
+not adopted yet - the multi-seed viability half of the gate is its own
+experiment.
+
 ### What the policy costs
 
 Before organisms had brains the same run took **2.92 s** (digest

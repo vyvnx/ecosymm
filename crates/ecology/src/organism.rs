@@ -1,6 +1,6 @@
 //! one individual: a mutable body around an immutable genome.
 
-use ecosym_genetics::{Genes, Genome, NeuralGenome};
+use ecosym_genetics::{Genes, Genome, NeuralGenome, HIDDEN};
 
 /// stable identity for one organism. never reused inside a run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -39,16 +39,23 @@ pub struct Organism {
     pub y: f32,
     pub energy: f32,
     pub age: u32,
-    /// how far it actually travelled last tick. the one scrap of memory an
-    /// organism has, and the only recurrent input its policy gets.
+    /// how far it actually travelled last tick. reported, not observed.
     pub last_move: f32,
+    /// the policy's working memory: last tick's hidden activations, fed back
+    /// into this tick's.
+    ///
+    /// state, not genome. it starts at zero, persists across ticks and epochs
+    /// until the body dies, and is **never inherited** - a newborn has no
+    /// memory of places it has never been. that is the whole difference between
+    /// a lifetime and a lineage, and putting it in `Genome` would erase it.
+    pub hidden: [f32; HIDDEN],
     id: OrganismId,
     genome: Genome,
 }
 
 impl Organism {
     pub fn new(id: OrganismId, genome: Genome, x: f32, y: f32, energy: f32) -> Organism {
-        Organism { x, y, energy, age: 0, last_move: 0.0, id, genome }
+        Organism { x, y, energy, age: 0, last_move: 0.0, hidden: [0.0; HIDDEN], id, genome }
     }
 
     pub fn id(&self) -> OrganismId {
@@ -72,6 +79,7 @@ impl Organism {
             && self.y.is_finite()
             && self.energy.is_finite()
             && self.last_move.is_finite()
+            && self.hidden.iter().all(|h| h.is_finite())
             && self.genes().is_finite()
             && self.brain().is_finite()
     }
