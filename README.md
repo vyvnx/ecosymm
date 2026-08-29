@@ -58,13 +58,47 @@ npm run server   # rust ws server on :3001
 npm run dev      # vite on :5173, proxies /api and /ws to the server
 ```
 
+The page *is* the world: a fullscreen canvas showing terrain and climate, the
+shared resource field depleting and regrowing, and every sampled organism at its
+simulated position, coloured by species. One small readout floats bottom left -
+epoch, populations, frame rate, digest. Nothing else, and nothing to click.
+
+One copy of the world is drawn, centred, at whatever size the window allows.
+The map is a torus, so it *could* tile to fill a wide screen; that was tried and
+removed, because two identical landmasses side by side read as two worlds.
+
+Movement, births and deaths are interpolated between samples at
+`requestAnimationFrame` cadence, so the picture stays smooth however fast the
+simulation and the socket happen to be running. That interpolated path is a
+visual estimate across an epoch, not a record of the 20 ticks inside it.
+
+The browser never starts anything. It opens a socket on load, renders whatever
+arrives, and reconnects when the socket drops - the server decides what runs.
+
+The server samples state at most 15 times a wall-clock second and always sends
+the first and last. Aggregate epoch reports and the replay digest are unchanged
+and still arrive as JSON; the sampled render state is a separate binary frame
+(`ECSY`, version 1, little-endian, described in `apps/server/src/wire.rs`).
+Golden hex vectors are duplicated in `apps/server/src/wire.rs` and
+`apps/web/src/render/protocol.test.js` so a change to the format fails on both
+sides at once.
+
+Rendering is one-way by construction: extraction takes `&SimulationState`, is
+not part of `EpochEngine`, and cannot reach the digest -
+`render_extraction_does_not_reach_the_digest` in `crates/replay` is the proof.
+WebGL2 is required; there is no Canvas 2D fallback.
+
+```bash
+npm test -w @ecosym/web   # protocol and reconciliation, node's own test runner
+```
+
 ## Layout
 
 | path | what |
 | --- | --- |
 | `apps/cli` | the `ecosym` binary (workspace `default-members`, so bare `cargo run` hits it) |
-| `apps/server` | axum HTTP + WebSocket, streams one message per epoch |
-| `apps/web` | React + Tailwind, live per-species chart off the WebSocket |
+| `apps/server` | axum HTTP + WebSocket; a blocking producer streams epoch reports as JSON and sampled render state as binary |
+| `apps/web` | React + Tailwind dashboard around a WebGL2 world view (`src/render/`) |
 | `crates/core` | rng, `SimConfig`, hashing, named seed derivation |
 | `crates/genetics` | `GenomeId`, `Genes`, `NeuralGenome`, immutable `Genome`, mutation, recombination |
 | `crates/world` | terrain, passability, climate, and the shared resource field with local dispersal |

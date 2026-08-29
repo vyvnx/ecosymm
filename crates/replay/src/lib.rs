@@ -68,7 +68,9 @@ mod tests {
     use super::*;
     use ecosym_ecology::{BehaviorStats, SpeciesBlueprint};
     use ecosym_genetics::Genes;
-    use ecosym_simulation::{default_blueprints, Simulation, SpeciesStats};
+    use ecosym_simulation::{
+        default_blueprints, RenderSnapshot, RenderWorld, Simulation, SpeciesStats,
+    };
 
     fn stats(id: u32, population: usize) -> SpeciesStats {
         SpeciesStats {
@@ -172,6 +174,39 @@ mod tests {
         assert_ne!(baseline, with(|s| s.behavior.reproduction = 0.01));
         assert_ne!(baseline, with(|s| s.behavior.resting = 0.01));
         assert_ne!(baseline, with(|s| s.behavior.competitor_exposure = 0.01));
+    }
+
+    /// watching a run must not be able to change it. the renderer extracts
+    /// before and after every epoch and the digest has to come out identical -
+    /// this is what makes a bet on a rendered run auditable.
+    #[test]
+    fn render_extraction_does_not_reach_the_digest() {
+        let cfg = SimConfig {
+            seed: 1234,
+            population_per_species: 40,
+            epochs: 8,
+            width: 48,
+            height: 48,
+            ticks_per_epoch: 10,
+        };
+        let digest = |watched: bool| {
+            let mut sim = Simulation::cpu(cfg.clone());
+            let mut rec = Recorder::new(cfg.clone(), sim.engine_id());
+            if watched {
+                RenderWorld::extract(&sim.state.world).unwrap();
+            }
+            for _ in 0..cfg.epochs {
+                if watched {
+                    RenderSnapshot::extract(&sim.state).unwrap();
+                }
+                rec.push(sim.advance_epoch().unwrap());
+                if watched {
+                    RenderSnapshot::extract(&sim.state).unwrap();
+                }
+            }
+            (rec.digest(), sim.outcome())
+        };
+        assert_eq!(digest(false), digest(true));
     }
 
     #[test]
