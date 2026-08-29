@@ -351,7 +351,9 @@ fn simulate(cfg: SimConfig, hub: &Hub, run_id: i64, epoch_pace: Duration) -> (St
         let extinct = report.population == 0;
         hub.publish(
             Slot::Report,
-            Message::Text(json!({ "type": "epoch", "run_id": run_id, "report": report }).to_string().into()),
+            Message::Text(
+                json!({ "type": "epoch", "run_id": run_id, "report": report }).to_string().into(),
+            ),
         );
         recorder.push(report);
 

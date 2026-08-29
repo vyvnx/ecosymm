@@ -99,13 +99,24 @@ async fn main() {
 /// a distributed coordinator; this is the single-process guard.
 fn exclusive_lock(db: &std::path::Path) -> File {
     let path = db.with_extension("lock");
-    let file = File::create(&path).unwrap_or_else(|e| panic!("cannot create {path:?}: {e}"));
-    file.try_lock().unwrap_or_else(|_| {
-        panic!(
-            "another ecosym-server already owns {db:?}. only one coordinator may run a database."
-        )
-    });
+    let file =
+        File::create(&path).unwrap_or_else(|e| stop(&format!("cannot create {path:?}: {e}")));
+    if file.try_lock().is_err() {
+        stop(&format!(
+            "another ecosym-server already owns {}.\n  \
+             two coordinators would run two worlds into one set of markets. stop\n  \
+             the other one, or point this one somewhere else with ECOSYM_DB.",
+            db.display()
+        ));
+    }
     file
+}
+
+/// a startup problem is the operator's to fix, so it leaves as a message
+/// rather than as a panic and a backtrace
+fn stop(why: &str) -> ! {
+    eprintln!("ecosym-server: {why}");
+    std::process::exit(1)
 }
 
 async fn ws_handler(
