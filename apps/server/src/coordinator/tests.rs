@@ -302,8 +302,9 @@ async fn a_stranded_market_is_refunded_before_the_next_one_opens() {
     task.abort();
 }
 
-/// watching and betting are outside the simulation. the same seed has to fold
-/// into the same digest with a hub attached, whatever the pacing.
+/// watching, betting and telemetry are all outside the simulation. the same
+/// seed has to fold into the same digest with a hub attached and the detectors
+/// running, whatever the pacing.
 #[test]
 fn publishing_and_pacing_cannot_reach_the_digest() {
     let cfg = SimConfig {

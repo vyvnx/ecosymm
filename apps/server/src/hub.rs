@@ -28,6 +28,10 @@ pub enum Slot {
     World,
     Report,
     Snapshot,
+    /// the whole bounded event ring, republished whenever it grows. it is the
+    /// feed itself rather than a delta, so a reconnecting viewer merges by
+    /// event id and never rebuilds a conflicting local history.
+    Telemetry,
     Market,
     Result,
 }
@@ -42,6 +46,7 @@ pub struct Bundle {
     pub world: Option<Message>,
     pub report: Option<Message>,
     pub snapshot: Option<Message>,
+    pub telemetry: Option<Message>,
     pub market: Option<Message>,
     pub result: Option<Message>,
 }
@@ -51,11 +56,19 @@ impl Bundle {
     /// before what is in it, and the market last so it can be read against a
     /// run the client already knows about.
     pub fn bootstrap(&self) -> Vec<Message> {
-        [&self.config, &self.world, &self.report, &self.snapshot, &self.market, &self.result]
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect()
+        [
+            &self.config,
+            &self.world,
+            &self.report,
+            &self.snapshot,
+            &self.telemetry,
+            &self.market,
+            &self.result,
+        ]
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect()
     }
 }
 
@@ -135,6 +148,7 @@ impl Hub {
             retained.world = None;
             retained.report = None;
             retained.snapshot = None;
+            retained.telemetry = None;
             retained.result = None;
         }
         let field = match slot {
@@ -142,6 +156,7 @@ impl Hub {
             Slot::World => &mut retained.world,
             Slot::Report => &mut retained.report,
             Slot::Snapshot => &mut retained.snapshot,
+            Slot::Telemetry => &mut retained.telemetry,
             Slot::Market => &mut retained.market,
             Slot::Result => &mut retained.result,
         };

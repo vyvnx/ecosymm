@@ -15,6 +15,7 @@
 
 use crate::hub::{Hub, Slot};
 use crate::store::{self, MarketRow, NewRun};
+use crate::telemetry::{self, Telemetry};
 use crate::{auth, now, AppState};
 use axum::extract::ws::Message;
 use ecosym_core::SimConfig;
@@ -328,6 +329,11 @@ fn simulate(cfg: SimConfig, hub: &Hub, run_id: i64, epoch_pace: Duration) -> (St
                     "initial_biomass": summary.initial_biomass,
                     "mean_temperature": summary.mean_temperature,
                 },
+                // the scales the species meters are drawn against. genetics
+                // constants, so they belong with the run rather than in a
+                // second copy of the numbers in the browser.
+                "gene_bounds": telemetry::gene_bounds(),
+                "detector_version": telemetry::DETECTOR_VERSION,
                 // stable order: the client indexes species by position
                 "species": sim.state.species.iter().map(|s| json!({
                     "id": s.id().get(),
@@ -353,6 +359,14 @@ fn simulate(cfg: SimConfig, hub: &Hub, run_id: i64, epoch_pace: Duration) -> (St
     let mut last_sample = Instant::now();
     snapshot(hub, &sim, &world, &mut sampled);
 
+    // presentation only, and local to this run by construction: it is created
+    // here and dropped with the run, so no measurement, cooldown or ring can
+    // survive into the next one.
+    let mut watcher = Telemetry::start(
+        run_id,
+        &sim.state.species.iter().map(|s| s.name().to_string()).collect::<Vec<_>>(),
+    );
+
     let started = Instant::now();
     for epoch in 0..cfg.epochs {
         let report = sim.advance_epoch().expect("cpu engine cannot fail");
@@ -363,6 +377,9 @@ fn simulate(cfg: SimConfig, hub: &Hub, run_id: i64, epoch_pace: Duration) -> (St
                 json!({ "type": "epoch", "run_id": run_id, "report": report }).to_string().into(),
             ),
         );
+        if !watcher.push(&report).is_empty() {
+            publish_telemetry(hub, run_id, &watcher);
+        }
         recorder.push(report);
 
         if last_sample.elapsed() >= SAMPLE_INTERVAL {
@@ -386,6 +403,9 @@ fn simulate(cfg: SimConfig, hub: &Hub, run_id: i64, epoch_pace: Duration) -> (St
     }
 
     let outcome = sim.outcome();
+    if !watcher.finish(sim.epoch(), &outcome).is_empty() {
+        publish_telemetry(hub, run_id, &watcher);
+    }
     hub.publish(
         Slot::Result,
         Message::Text(
@@ -401,6 +421,25 @@ fn simulate(cfg: SimConfig, hub: &Hub, run_id: i64, epoch_pace: Duration) -> (St
         ),
     );
     (recorder.digest_hex(), outcome)
+}
+
+/// the whole ring, not a delta. it is bounded and small, and republishing it
+/// is what lets a reconnecting viewer merge by event id instead of stitching a
+/// history it can only get wrong.
+fn publish_telemetry(hub: &Hub, run_id: i64, watcher: &Telemetry) {
+    hub.publish(
+        Slot::Telemetry,
+        Message::Text(
+            json!({
+                "type": "telemetry",
+                "run_id": run_id,
+                "detector_version": telemetry::DETECTOR_VERSION,
+                "events": watcher.events().collect::<Vec<_>>(),
+            })
+            .to_string()
+            .into(),
+        ),
+    );
 }
 
 fn snapshot(hub: &Hub, sim: &Simulation, world: &RenderWorld, sampled: &mut Option<usize>) {
