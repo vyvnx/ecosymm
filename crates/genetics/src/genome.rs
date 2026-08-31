@@ -103,6 +103,26 @@ impl Genes {
             heat_pref: fraction * (HEAT_PREF_BOUNDS.1 - HEAT_PREF_BOUNDS.0),
         }
     }
+
+    /// squared distance between two bodies, with every trait normalised by its
+    /// own full range so no axis counts for more than another just because its
+    /// numbers are bigger.
+    ///
+    /// squared and not rooted on purpose: every caller compares it against a
+    /// squared threshold, and a comparison without a `sqrt` is what a compute
+    /// shader can port unchanged. the four terms are evaluated in this fixed
+    /// order and added left to right, so the `f32` result does not depend on
+    /// how a backend chose to associate the sum.
+    pub fn distance_sq(&self, other: &Genes) -> f32 {
+        let axis = |a: f32, b: f32, (lo, hi): (f32, f32)| {
+            let d = (a - b) / (hi - lo);
+            d * d
+        };
+        axis(self.speed, other.speed, SPEED_BOUNDS)
+            + axis(self.size, other.size, SIZE_BOUNDS)
+            + axis(self.metabolism, other.metabolism, METABOLISM_BOUNDS)
+            + axis(self.heat_pref, other.heat_pref, HEAT_PREF_BOUNDS)
+    }
 }
 
 /// an organism's genome: identity, both genetic parents, the physical genes and
@@ -236,5 +256,42 @@ mod tests {
             assert!(normalised(g.metabolism, base.metabolism, METABOLISM_BOUNDS) <= 0.05 + 1e-6);
             assert!(normalised(g.heat_pref, base.heat_pref, HEAT_PREF_BOUNDS) <= 0.05 + 1e-6);
         }
+    }
+
+    /// the distance every compatibility decision in the model is taken on. it
+    /// is normalised by each trait's own range, so no axis dominates because
+    /// its numbers happen to be bigger, and it is squared so nothing has to
+    /// take a root - a future gpu engine ports the comparison as it stands.
+    #[test]
+    fn normalised_distance_is_symmetric_bounded_and_axis_fair() {
+        let a = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
+        assert_eq!(a.distance_sq(&a), 0.0);
+
+        let b = Genes { speed: 1.5, size: 1.2, metabolism: 0.7, heat_pref: 0.9 };
+        assert_eq!(a.distance_sq(&b), b.distance_sq(&a));
+        assert!(a.distance_sq(&b) > 0.0);
+
+        // one axis moved by its whole range contributes exactly 1.0
+        let full_speed = Genes { speed: SPEED_BOUNDS.1, ..a };
+        let floor_speed = Genes { speed: SPEED_BOUNDS.0, ..a };
+        assert!((full_speed.distance_sq(&floor_speed) - 1.0).abs() < 1e-6);
+        let full_heat = Genes { heat_pref: HEAT_PREF_BOUNDS.1, ..a };
+        let floor_heat = Genes { heat_pref: HEAT_PREF_BOUNDS.0, ..a };
+        assert!((full_heat.distance_sq(&floor_heat) - 1.0).abs() < 1e-6);
+
+        // the two corners of the whole space are four full ranges apart
+        let lo = Genes {
+            speed: SPEED_BOUNDS.0,
+            size: SIZE_BOUNDS.0,
+            metabolism: METABOLISM_BOUNDS.0,
+            heat_pref: HEAT_PREF_BOUNDS.0,
+        };
+        let hi = Genes {
+            speed: SPEED_BOUNDS.1,
+            size: SIZE_BOUNDS.1,
+            metabolism: METABOLISM_BOUNDS.1,
+            heat_pref: HEAT_PREF_BOUNDS.1,
+        };
+        assert!((lo.distance_sq(&hi) - 4.0).abs() < 1e-5);
     }
 }
