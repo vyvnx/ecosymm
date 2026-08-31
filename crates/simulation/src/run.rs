@@ -30,14 +30,48 @@ pub fn default_blueprints() -> Vec<SpeciesBlueprint> {
     ]
 }
 
+/// how wide a founder may sit from its house's centre, as a fraction of every
+/// trait's full range. one number for all four axes and all three houses: a
+/// house that got a wider envelope would be a different kind of thing, not a
+/// differently centred one.
+///
+/// 0.05 puts the two most distant founders of one house at normalised distance
+/// 0.2, well inside `COMPAT`, so no house is founded already split. it is a
+/// hypothesis the founder acceptance gate tests, not a tuned value.
+pub const PANTHEON_SPREAD: f32 = 0.05;
+
+/// the opt-in scenario: three founding houses named for the three precious
+/// children born from Izanagi's purification.
+///
+/// the domains are archetypes, not policies. Amaterasu is warm-adapted and
+/// expensive to run, Tsukuyomi cold-adapted and thrifty, Susanoo fast and
+/// costly. each centre is a public hypothesis about a niche; whether any of
+/// them is actually viable is what selection decides, and nothing here hands a
+/// house a strategy - founder brains still come from each house's own derived
+/// brain stream and nothing else.
+///
+/// production does not use this. `default_blueprints()` is still the scenario
+/// the server runs; see docs/pantheon-speciation-plan.md phase 6.
+pub fn pantheon_blueprints() -> Vec<SpeciesBlueprint> {
+    let envelope = Genes::spread(PANTHEON_SPREAD);
+    [
+        ("Amaterasu", Genes { speed: 1.05, size: 1.05, metabolism: 1.25, heat_pref: 0.70 }),
+        ("Tsukuyomi", Genes { speed: 0.80, size: 1.00, metabolism: 0.80, heat_pref: 0.30 }),
+        ("Susanoo", Genes { speed: 1.35, size: 0.90, metabolism: 1.15, heat_pref: 0.50 }),
+    ]
+    .into_iter()
+    .map(|(name, genes)| SpeciesBlueprint { name: name.into(), genes, gene_spread: envelope })
+    .collect()
+}
+
 /// the controlled experiment: identical bodies, different founder policies.
 ///
-/// both species get Species A's physical profile, so morphology cannot explain
+/// all species get Species A's physical profile, so morphology cannot explain
 /// any divergence. their brains still come from separate derived seeds, which
 /// leaves the evolved policy as the only thing that differs between them.
-pub fn twin_blueprints() -> Vec<SpeciesBlueprint> {
+pub fn twin_blueprints(n: usize) -> Vec<SpeciesBlueprint> {
     let base = default_blueprints().swap_remove(0);
-    (0..2).map(|i| SpeciesBlueprint { name: format!("Twin {i}"), ..base.clone() }).collect()
+    (0..n).map(|i| SpeciesBlueprint { name: format!("Twin {i}"), ..base.clone() }).collect()
 }
 
 /// the ceiling is allocation protection, not carrying capacity, so it has to
@@ -447,7 +481,7 @@ mod tests {
     /// the two is down to the policies evolution found for them
     #[test]
     fn the_twin_scenario_leaves_the_policy_as_the_only_difference() {
-        let twins = twin_blueprints();
+        let twins = twin_blueprints(2);
         assert_eq!(twins[0].genes, twins[1].genes, "the twins are not physically identical");
 
         // the default world, not the small one the rest of the suite uses.
@@ -500,5 +534,58 @@ mod tests {
             Winner::Tie(ref ids) => assert!(ids.len() > 1),
             Winner::None => assert!(outcome.species.iter().all(|s| s.final_population == 0)),
         }
+    }
+
+    /// procedural symmetry: three houses differ by name and centre and by
+    /// nothing else. this is not a claim that they are equally fit - that is
+    /// what the founder acceptance gate measures.
+    #[test]
+    fn the_three_houses_differ_only_in_name_and_centre() {
+        let houses = pantheon_blueprints();
+        assert_eq!(houses.len(), 3);
+        let names: Vec<&str> = houses.iter().map(|h| h.name.as_str()).collect();
+        assert_eq!(names, ["Amaterasu", "Tsukuyomi", "Susanoo"]);
+
+        let envelope = Genes::spread(PANTHEON_SPREAD);
+        for h in &houses {
+            assert_eq!(h.gene_spread, envelope, "{} has its own envelope", h.name);
+            assert!(h.genes.in_bounds(), "{} is centred outside the bounds", h.name);
+        }
+        for (i, a) in houses.iter().enumerate() {
+            for b in &houses[i + 1..] {
+                assert_ne!(a.genes, b.genes, "{} and {} share a centre", a.name, b.name);
+            }
+        }
+    }
+
+    #[test]
+    fn each_house_is_viable_on_its_own() {
+        for blueprint in pantheon_blueprints() {
+            let cfg = small();
+            let mut sim = Simulation::cpu_with(cfg.clone(), std::slice::from_ref(&blueprint));
+            for _ in 0..cfg.epochs {
+                sim.advance_epoch().unwrap();
+            }
+            let outcome = sim.outcome();
+            assert!(
+                outcome.species[0].final_population > 0,
+                "{} went extinct alone: {outcome:?}",
+                blueprint.name
+            );
+            assert!(outcome.species[0].births > 0, "{} never reproduced alone", blueprint.name);
+        }
+    }
+
+    /// the controlled three-way: identical bodies, three independent brain
+    /// streams. morphology cannot explain a divergence here.
+    #[test]
+    fn three_twins_share_a_body_and_not_a_policy() {
+        let twins = twin_blueprints(3);
+        assert_eq!(twins.len(), 3);
+        assert!(twins.iter().all(|t| t.genes == twins[0].genes));
+        let sim = Simulation::cpu_with(small(), &twins);
+        let first = |i: usize| *sim.state.species[i].population().organisms()[0].brain();
+        assert_ne!(first(0), first(1));
+        assert_ne!(first(1), first(2));
     }
 }

@@ -41,6 +41,12 @@ pub struct SpeciesBlueprint {
 ///
 /// separate on purpose: bodies and brains must not share a stream, or adding
 /// one morphology field silently re-rolls every founder policy after it.
+///
+/// ponytail: placement draws from `morphology`, not a stream of its own. the
+/// pantheon plan asks for three separate streams; splitting placement out now
+/// would move every founder in the production scenario and change its digest
+/// for no present benefit, because nothing has added a morphology field. split
+/// it when one is added, or at the phase-6 activation gate.
 pub struct FounderStreams<'a> {
     pub morphology: &'a mut Rng,
     pub brains: &'a mut Rng,

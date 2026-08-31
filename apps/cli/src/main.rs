@@ -36,7 +36,7 @@ fn main() {
     };
 
     let mut sim = if args.twins {
-        Simulation::cpu_with(cfg.clone(), &twin_blueprints())
+        Simulation::cpu_with(cfg.clone(), &twin_blueprints(2))
     } else {
         Simulation::cpu(cfg.clone())
     };
