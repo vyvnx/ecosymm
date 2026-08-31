@@ -294,7 +294,11 @@ async fn the_market_is_readable_signed_out_and_carries_your_bet_signed_in() {
     assert_eq!(public.body["pools"], json!([0, 0, 0]));
     assert!(public.body["bet"].is_null());
     assert!(public.body["seed_hex"].is_null(), "an open market published its seed");
-    assert_eq!(public.body["species"].as_array().unwrap().len(), 2);
+    let species = public.body["species"].as_array().unwrap();
+    assert_eq!(species.len(), 2);
+    // the card reads the bodies off the market rather than off the run that
+    // just ended, so an open market has to carry them
+    assert_eq!(species[0]["genes"]["speed"], 1.3);
 
     let token = signup(&router, "darwin").await.token().unwrap();
     let bet = send(

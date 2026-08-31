@@ -1,23 +1,21 @@
 import { useEffect, useRef } from 'react'
 import LiveLog, { LatestEvent } from './LiveLog.jsx'
-import SpeciesProfiles from './SpeciesProfiles.jsx'
 import { unread } from './telemetry/events.js'
 
 /**
- * the mobile chrome: one latest-event ticker, two dock buttons, and one sheet
- * slot they share.
+ * the mobile chrome: one latest-event ticker, one dock button, and the sheet
+ * it opens.
  *
  * the page is a world viewer, so the default state gives the world everything
- * it can: a one-line ticker and a row of buttons, and nothing else stacked
- * over the map. `Live` and `Species` open the *same* slot rather than two, so
- * two sheets cannot be up at once and the world is never covered twice.
+ * it can: a one-line ticker and a button, and nothing else stacked over the
+ * map.
  *
- * which sheet is open is App's decision, not this component's - see the
+ * whether the sheet is open is App's decision, not this component's - see the
  * overlay state machine there. this file draws what it is told to draw.
  */
-export default function SpectatorDock({ feed, cards, sheet, onOpen, onClose, onSeen }) {
+export default function SpectatorDock({ feed, sheet, onOpen, onClose, onSeen }) {
   const behind = unread(feed).length
-  const triggers = useRef({})
+  const trigger = useRef(null)
 
   return (
     // above the betting line rather than over it: betting stays the highest
@@ -25,17 +23,13 @@ export default function SpectatorDock({ feed, cards, sheet, onOpen, onClose, onS
     <div className="pointer-events-none absolute inset-x-0 bottom-[4.25rem] flex flex-col gap-1 px-2 sm:hidden">
       {sheet && (
         <Sheet
-          title={sheet === 'events' ? 'run events' : 'species'}
+          title="run events"
           onClose={() => {
             onClose()
-            triggers.current[sheet]?.focus()
+            trigger.current?.focus()
           }}
         >
-          {sheet === 'events' ? (
-            <LiveLog feed={feed} onSeen={onSeen} label="run events" />
-          ) : (
-            <SpeciesProfiles cards={cards} />
-          )}
+          <LiveLog feed={feed} onSeen={onSeen} label="run events" />
         </Sheet>
       )}
 
@@ -45,9 +39,7 @@ export default function SpectatorDock({ feed, cards, sheet, onOpen, onClose, onS
 
       <div className="pointer-events-auto flex gap-1">
         <Tab
-          ref={(el) => {
-            triggers.current.events = el
-          }}
+          ref={trigger}
           open={sheet === 'events'}
           onClick={() => (sheet === 'events' ? onClose() : onOpen('events'))}
         >
@@ -57,15 +49,6 @@ export default function SpectatorDock({ feed, cards, sheet, onOpen, onClose, onS
               {behind}
             </span>
           )}
-        </Tab>
-        <Tab
-          ref={(el) => {
-            triggers.current.species = el
-          }}
-          open={sheet === 'species'}
-          onClick={() => (sheet === 'species' ? onClose() : onOpen('species'))}
-        >
-          Species
         </Tab>
       </div>
     </div>
@@ -148,10 +131,11 @@ function Sheet({ title, onClose, children }) {
           close
         </button>
       </div>
-      {/* one column, and the only thing that scrolls. horizontal overflow is
-          clipped rather than scrolled, because a sideways swipe on a phone is
-          how you lose half a card without noticing it is there. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
+      {/* one column, and the child owns the scrolling in it - a scroller here
+          as well is what put two bars on the feed. nothing scrolls sideways
+          either way, because a sideways swipe on a phone is how you lose half
+          a card without noticing it is there. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {children}
       </div>
     </section>

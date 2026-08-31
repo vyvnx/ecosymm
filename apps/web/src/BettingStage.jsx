@@ -1,5 +1,6 @@
 import { speciesCss } from './render/WorldRenderer.js'
 import { outcomeLabels } from './game/coins.js'
+import { traits } from './telemetry/species.js'
 
 /**
  * the betting phase, over a darkened world.
@@ -15,11 +16,16 @@ import { outcomeLabels } from './game/coins.js'
  * markets ended. every run draws its own seed, so the record is a sample of
  * the distribution and never a tell about the run to come. it is the same
  * record for everyone, which is what keeps it information rather than an edge.
+ *
+ * the two bodies are the other half of it. they are the founder bodies the
+ * sealed run will start from, which is the only thing about that run anyone
+ * is allowed to know before it locks.
  */
 export default function BettingStage({ market, form }) {
   if (!market || market.phase !== 'open') return null
 
   const outcomes = outcomeLabels(market.species)
+  const [a, b] = market.species
   const legend = [
     ...outcomes.map((o) => ({
       key: o.key,
@@ -41,6 +47,19 @@ export default function BettingStage({ market, form }) {
           {/* the seal itself. it says nothing to read and everything to check:
               the same hash turns up beside the seed once the market locks. */}
           <p className="mt-1 break-all text-neutral-600">{market.commitment.slice(0, 24)}...</p>
+
+          {/* what is actually being bet on, in words rather than gene values:
+              a card nobody can read in thirty seconds is not information. */}
+          {a && b && (
+            <div className="mt-4 border-t border-neutral-800/80 pt-3">
+              <p className="text-neutral-600">up next</p>
+              <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-start gap-2">
+                <Body species={a} index={0} />
+                <span className="self-center text-neutral-700">vs</span>
+                <Body species={b} index={1} />
+              </div>
+            </div>
+          )}
 
           {form.length > 0 && (
             <div className="mt-4 border-t border-neutral-800/80 pt-3">
@@ -74,6 +93,27 @@ export default function BettingStage({ market, form }) {
         </div>
       </div>
     </>
+  )
+}
+
+/** one side of the matchup: who it is, and the body it starts the run with */
+function Body({ species, index }) {
+  return (
+    <div className="min-w-0">
+      <p className="flex items-center justify-center gap-1.5 text-neutral-200">
+        <span
+          aria-hidden
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ background: speciesCss(index) }}
+        />
+        <span className="truncate">{species.name}</span>
+      </p>
+      <ul className="mt-1 space-y-0.5 text-neutral-500">
+        {traits(species.genes).map((word) => (
+          <li key={word}>{word}</li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

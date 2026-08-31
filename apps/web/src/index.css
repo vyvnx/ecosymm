@@ -34,3 +34,20 @@
     color: #34d399;
   }
 }
+
+/* the live feed. one scroller and a hairline thumb instead of the browser's
+   default bar, and the oldest entries fade out at the top edge rather than
+   being cut off by it. the 2rem of padding on the content means the first
+   entry can still scroll clear of the fade band. */
+.feed {
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: #404040 transparent;
+  mask-image: linear-gradient(to bottom, transparent, #000 2rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed {
+    scroll-behavior: auto;
+  }
+}

@@ -84,8 +84,8 @@ const KIND = {
   lead_change: 'lead change',
   population_trend: 'population',
   world_trend: 'world',
-  strategy_shift: 'strategy',
-  trait_drift: 'trait drift',
+  strategy_shift: 'behaviour',
+  trait_drift: 'evolution',
   result: 'result',
 }
 

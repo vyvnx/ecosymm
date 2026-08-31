@@ -4,7 +4,6 @@ import BetPanel from "./BetPanel.jsx";
 import BettingStage from "./BettingStage.jsx";
 import LiveLog from "./LiveLog.jsx";
 import RunResult from "./RunResult.jsx";
-import SpeciesProfiles from "./SpeciesProfiles.jsx";
 import SpectatorDock from "./SpectatorDock.jsx";
 import WorldView, { createController } from "./WorldView.jsx";
 import { api } from "./game/api.js";
@@ -12,7 +11,6 @@ import { fromAnotherRun, initialMarket, reduceMarket } from "./game/market.js";
 import { decode } from "./render/protocol.js";
 import { speciesCss } from "./render/WorldRenderer.js";
 import { initialFeed, markRead, reduceFeed, resetFeed, unread } from "./telemetry/events.js";
-import { profile } from "./telemetry/species.js";
 
 const PROTOCOL_VERSION = 1;
 
@@ -38,16 +36,13 @@ export default function App() {
   // the one place that decides what may be on screen at once. individual
   // panels ask for a slot; none of them decides it may have one.
   const [panel, setPanel] = useState(null);
-  const [rails, setRails] = useState({ species: true, events: true });
+  const [events, setEvents] = useState(true);
   // bumped whenever the socket has to start again: a bootstrap that did not
   // add up, or signing in and out, which is what re-authenticates it
   const [socketKey, setSocketKey] = useState(0);
 
   const report = useRef(null);
   const species = useRef([]);
-  // the run's first reported epoch, kept as the founder baseline every meter
-  // is drawn against. one report, replaced only by a new run.
-  const founder = useRef(null);
   const lastSnapshot = useRef(null);
   const runId = useRef(null);
   const controller = useRef(null);
@@ -176,7 +171,6 @@ export default function App() {
           // bootstrap left is about to be sent again.
           species.current = [];
           report.current = null;
-          founder.current = null;
           lastSnapshot.current = null;
           runId.current = null;
           setFeed(initialFeed);
@@ -212,7 +206,6 @@ export default function App() {
           // a new run: drop everything the last one left behind
           species.current = msg.species;
           report.current = null;
-          founder.current = null;
           lastSnapshot.current = null;
           runId.current = msg.run_id ?? null;
           setFeed(resetFeed(msg.run_id ?? null));
@@ -220,10 +213,7 @@ export default function App() {
           setDone(null);
           setStart(msg);
         }
-        if (msg.type === "epoch") {
-          report.current = msg.report;
-          founder.current ??= msg.report.species;
-        }
+        if (msg.type === "epoch") report.current = msg.report;
         if (msg.type === "telemetry") setFeed((f) => reduceFeed(f, msg));
         if (msg.type === "error") throw new Error(msg.message);
         if (msg.type === "done") setDone(msg);
@@ -273,21 +263,8 @@ export default function App() {
   // telemetry, because the run behind the dim is not the one being bet on.
   const betting = phase === "open";
   const overlay = finished ? "result" : betting ? null : panel;
-  const sheet = overlay === "events" || overlay === "species" ? overlay : null;
+  const sheet = overlay === "events" ? overlay : null;
   const watching = !betting && !finished;
-
-  // ponytail: rebuilt on the hud's 100ms tick for two species. it is a handful
-  // of divisions - memoise it if the scenario ever grows a lot more species.
-  const profiles =
-    watching && last
-      ? last.species.map((s, i) =>
-          profile(s, founder.current?.[i] ?? null, start?.gene_bounds, {
-            index: i,
-            events: feed.events,
-            epoch: last.epoch,
-          }),
-        )
-      : [];
 
   return (
     <div className="fixed inset-0 bg-neutral-950 font-mono text-neutral-200">
@@ -383,32 +360,22 @@ export default function App() {
           ended, so it goes dark and the record takes the screen instead. */}
       <BettingStage market={game.market} form={form} />
 
-      {/* the two desktop rails. they collapse independently and the world
-          stays where it is: it is centred by the canvas itself, so nothing
-          here can squash its aspect ratio. */}
+      {/* the desktop rail. it is a panel over the world rather than a column
+          beside it: the canvas is full-bleed and letterboxes the map itself,
+          so a layout column would take width from the world for nothing. */}
       {watching && (
         <>
           <Rail
-            side="left"
-            title="species"
-            open={rails.species}
-            onToggle={() => setRails((r) => ({ ...r, species: !r.species }))}
-          >
-            <SpeciesProfiles cards={profiles} />
-          </Rail>
-          <Rail
-            side="right"
             title="live"
             badge={unread(feed).length}
-            open={rails.events}
-            onToggle={() => setRails((r) => ({ ...r, events: !r.events }))}
+            open={events}
+            onToggle={() => setEvents((open) => !open)}
           >
             <LiveLog feed={feed} onSeen={seen} label="run events" />
           </Rail>
 
           <SpectatorDock
             feed={feed}
-            cards={profiles}
             sheet={sheet}
             onOpen={setPanel}
             onClose={() => setPanel(null)}
@@ -459,18 +426,10 @@ export default function App() {
   );
 }
 
-/**
- * one desktop rail. it is a panel over the world rather than a column beside
- * it, because the canvas is full-bleed and letterboxes the map itself - a
- * layout column would take width from the world for nothing.
- */
-function Rail({ side, title, open, onToggle, badge = 0, children }) {
+function Rail({ title, open, onToggle, badge = 0, children }) {
   // anchored top and bottom rather than capped by height: a short landscape
   // window is exactly where a max-height rail grows down into the readout
-  const place =
-    side === "left"
-      ? "left-4 top-4 bottom-[12rem] w-52 lg:w-60"
-      : "right-4 top-16 bottom-[6rem] w-60 lg:w-72";
+  const place = "right-4 top-16 bottom-[6rem] w-60 lg:w-72";
   return (
     <div
       className={`pointer-events-auto absolute ${open ? place : `${place} bottom-auto`} hidden flex-col rounded border border-neutral-800/80 bg-neutral-950/70 p-2 text-xs backdrop-blur sm:flex`}
@@ -491,8 +450,10 @@ function Rail({ side, title, open, onToggle, badge = 0, children }) {
           {open ? "\u2013" : "+"}
         </span>
       </button>
+      {/* the child owns the scrolling. a second scroller here is what put two
+          bars on the feed. */}
       {open && (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden pt-2">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2">
           {children}
         </div>
       )}

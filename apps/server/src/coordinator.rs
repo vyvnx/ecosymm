@@ -20,6 +20,7 @@ use crate::{auth, now, AppState};
 use axum::extract::ws::Message;
 use ecosym_core::SimConfig;
 use ecosym_game::{ContestResult, MarketOutcome, MarketRules, Pool, SpeciesTally};
+use ecosym_genetics::Genes;
 use ecosym_replay::Recorder;
 use ecosym_simulation::{default_blueprints, RenderSnapshot, RenderWorld, RunOutcome, Simulation};
 use serde::Serialize;
@@ -85,6 +86,10 @@ pub fn commitment(run_id: i64, config_json: &str, seed: u64, nonce_hex: &str) ->
 pub struct SpeciesLabel {
     pub id: u32,
     pub name: String,
+    /// the founder body a run of this species starts from. a market is about
+    /// the run to come, so the bodies on its card come from the blueprints
+    /// rather than from whatever the run that just ended evolved into.
+    pub genes: Genes,
 }
 
 /// the two species a market is about, in the order the buttons are drawn
@@ -92,7 +97,7 @@ pub fn species_labels() -> Vec<SpeciesLabel> {
     default_blueprints()
         .iter()
         .enumerate()
-        .map(|(i, b)| SpeciesLabel { id: i as u32, name: b.name.clone() })
+        .map(|(i, b)| SpeciesLabel { id: i as u32, name: b.name.clone(), genes: b.genes })
         .collect()
 }
 

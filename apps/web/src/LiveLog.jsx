@@ -18,6 +18,7 @@ import { describe, unread } from './telemetry/events.js'
  */
 export default function LiveLog({ feed, onSeen, label = 'run events' }) {
   const scroller = useRef(null)
+  const top = useRef(0)
   const [following, setFollowing] = useState(true)
   const behind = unread(feed).length
 
@@ -26,7 +27,7 @@ export default function LiveLog({ feed, onSeen, label = 'run events' }) {
   useEffect(() => {
     const box = scroller.current
     if (!box || !following) return
-    box.scrollTop = box.scrollHeight
+    box.scrollTo({ top: box.scrollHeight })
     if (behind > 0) onSeen()
   }, [feed.events, following, behind, onSeen])
 
@@ -35,13 +36,21 @@ export default function LiveLog({ feed, onSeen, label = 'run events' }) {
     if (!box) return
     // a couple of pixels of slack, because a fractional scroll height is
     // ordinary and "nearly at the bottom" is what the viewer meant
-    setFollowing(box.scrollHeight - box.scrollTop - box.clientHeight < 4)
+    const bottom = box.scrollHeight - box.scrollTop - box.clientHeight < 4
+    const up = box.scrollTop < top.current
+    top.current = box.scrollTop
+    // only scrolling *up* leaves the bottom, and the order matters: the ring
+    // dropping its oldest entry also moves scrollTop up, and that is the feed
+    // ageing rather than the viewer reading back. a smooth scroll to the
+    // newest entry only ever moves down, so it never unfollows mid-flight.
+    if (bottom) setFollowing(true)
+    else if (up) setFollowing(false)
   }
 
   function toBottom() {
     const box = scroller.current
     if (!box) return
-    box.scrollTop = box.scrollHeight
+    box.scrollTo({ top: box.scrollHeight })
     setFollowing(true)
     onSeen()
   }
@@ -54,13 +63,19 @@ export default function LiveLog({ feed, onSeen, label = 'run events' }) {
         role="log"
         aria-label={label}
         tabIndex={0}
-        className="min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden pr-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500"
+        className="feed flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500"
       >
-        {feed.events.length === 0 ? (
-          <p className="text-neutral-600">nothing yet - the detectors are watching</p>
-        ) : (
-          feed.events.map((event) => <Entry key={event.event_id} event={event} />)
-        )}
+        {/* pinned to the bottom like a chat, so a short feed sits on the floor
+            of the box instead of hanging in the fade at the top. `mt-auto`
+            rather than `justify-end`, which strands overflow above the
+            scrollable area. */}
+        <div className="mt-auto space-y-1.5 pt-8 pr-1">
+          {feed.events.length === 0 ? (
+            <p className="text-neutral-600">nothing yet - the detectors are watching</p>
+          ) : (
+            feed.events.map((event) => <Entry key={event.event_id} event={event} />)
+          )}
+        </div>
       </div>
 
       {behind > 0 && !following && (
@@ -85,19 +100,21 @@ export default function LiveLog({ feed, onSeen, label = 'run events' }) {
 function Entry({ event }) {
   const seen = describe(event)
   return (
-    <article
-      className="animate-[outcome-in_260ms_ease-out] border-l-2 pl-2 motion-reduce:animate-none"
-      style={{ borderColor: seen.species === null ? '#404040' : speciesCss(seen.species) }}
-    >
-      <div className="flex items-baseline gap-1.5">
-        <span aria-hidden className={`w-4 shrink-0 ${seen.tone}`}>
+    <article className="animate-[outcome-in_260ms_ease-out] rounded-lg bg-neutral-900/40 px-2.5 py-1.5 motion-reduce:animate-none">
+      <div className="flex items-center gap-1.5">
+        <span
+          aria-hidden
+          className="h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ background: seen.species === null ? '#525252' : speciesCss(seen.species) }}
+        />
+        <span aria-hidden className="truncate text-neutral-500">
+          {seen.kind}
+        </span>
+        <span aria-hidden className={`shrink-0 ${seen.tone}`}>
           {seen.mark}
         </span>
         <span className="sr-only">{seen.label.split(':')[0]}. </span>
-        <span className="tabular-nums text-neutral-600">{event.epoch}</span>
-        <span aria-hidden className="truncate text-neutral-600">
-          {seen.kind}
-        </span>
+        <span className="ml-auto shrink-0 tabular-nums text-neutral-600">{event.epoch}</span>
       </div>
       <p className="text-neutral-200">{event.title}</p>
       <p className="text-neutral-500">{event.evidence}</p>

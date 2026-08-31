@@ -21,9 +21,9 @@ use serde::Serialize;
 use std::collections::VecDeque;
 
 /// bumped whenever a threshold, factor or template changes. it ships with
-/// every event, because "Species A is shifting toward lower metabolism" is only
-/// meaningful next to the rules that decided it.
-pub const DETECTOR_VERSION: u32 = 1;
+/// every event, because "Species A is burning cooler" is only meaningful next
+/// to the rules that decided it.
+pub const DETECTOR_VERSION: u32 = 2;
 
 /// the feed a reconnecting viewer is given. a run is 500 epochs and the
 /// detectors are deliberately quiet, so this is the whole of a normal run.
@@ -190,16 +190,44 @@ impl Feature {
         }
     }
 
-    /// how a change in this feature reads in a title. traits drift, strategies
-    /// shift, head counts climb and fall.
-    fn phrase(self, rising: bool) -> &'static str {
-        match (self.kind(), rising) {
-            ("trait_drift", true) => "is drifting toward higher",
-            ("trait_drift", false) => "is drifting toward lower",
-            ("strategy_shift", true) => "is shifting toward more",
-            ("strategy_shift", false) => "is shifting toward less",
-            (_, true) => "is climbing on",
-            (_, false) => "is falling on",
+    /// what the event says, in plain english. the feed is read by a spectator
+    /// watching a world, not by anyone reading a dashboard: the title carries
+    /// what happened and the evidence line underneath it is the receipt.
+    ///
+    /// one written line per direction rather than a verb table over
+    /// `label()`, because "is shifting toward more competitor exposure" is a
+    /// sentence nobody should have to read. it is deliberately the widest
+    /// thing in this file - a new mechanic lands with the two sentences that
+    /// say what it looks like from outside, and that is the whole cost of
+    /// making it legible.
+    fn headline(self, rising: bool) -> &'static str {
+        match (self, rising) {
+            (Feature::Population, true) => "is booming",
+            (Feature::Population, false) => "is dying off",
+            (Feature::Births, true) => "is breeding faster",
+            (Feature::Births, false) => "is breeding less",
+            (Feature::Deaths, true) => "is dying faster",
+            (Feature::Deaths, false) => "is holding on longer",
+            (Feature::Biomass, true) => "is greening over",
+            (Feature::Biomass, false) => "is running bare",
+            (Feature::Energy, true) => "is well fed",
+            (Feature::Energy, false) => "is going hungry",
+            (Feature::Movement, true) => "is roaming further",
+            (Feature::Movement, false) => "is staying close to home",
+            (Feature::ResourceTracking, true) => "is finding food faster",
+            (Feature::ResourceTracking, false) => "is losing the trail",
+            (Feature::Breeding, true) => "is breeding harder",
+            (Feature::Breeding, false) => "is holding back on breeding",
+            (Feature::Resting, true) => "is taking it easy",
+            (Feature::Resting, false) => "is resting less",
+            (Feature::Exposure, true) => "is pushing into rival ground",
+            (Feature::Exposure, false) => "is keeping clear of its rivals",
+            (Feature::Metabolism, true) => "is burning hotter",
+            (Feature::Metabolism, false) => "is burning cooler",
+            (Feature::Speed, true) => "is getting faster",
+            (Feature::Speed, false) => "is getting slower",
+            (Feature::HeatPref, true) => "is moving into the warmth",
+            (Feature::HeatPref, false) => "is moving into the cold",
         }
     }
 }
@@ -433,11 +461,11 @@ impl Telemetry {
         }
         self.finished = true;
         let title = match &outcome.winner {
-            Winner::None => "the run ended with nothing alive".to_string(),
-            Winner::Species(id) => format!("{} took the run", self.name(*id)),
+            Winner::None => "nothing survived the run".to_string(),
+            Winner::Species(id) => format!("{} wins the run", self.name(*id)),
             Winner::Tie(ids) => {
                 let names: Vec<String> = ids.iter().map(|id| self.name(*id)).collect();
-                format!("{} finished level", names.join(" and "))
+                format!("{} finish level", names.join(" and "))
             }
         };
         let evidence = outcome
@@ -475,7 +503,7 @@ impl Telemetry {
                     kind_id: 2,
                     subtype_id: 0,
                     species_id: Some(s.id),
-                    title: format!("{name} bred for the first time"),
+                    title: format!("{name} breeds for the first time"),
                     evidence: format!("{} births in epoch {}", s.births, report.epoch),
                 });
             }
@@ -487,7 +515,7 @@ impl Telemetry {
                     kind_id: 1,
                     subtype_id: 0,
                     species_id: Some(s.id),
-                    title: format!("{name} is extinct"),
+                    title: format!("{name} dies out"),
                     evidence: format!(
                         "{} founders, {} births and {} deaths over the run so far",
                         self.initial[i] as i64, s.births, s.deaths
@@ -508,7 +536,7 @@ impl Telemetry {
                     kind_id: 3,
                     subtype_id: 0,
                     species_id: Some(s.id),
-                    title: format!("{name} is close to gone"),
+                    title: format!("{name} is down to its last few"),
                     evidence: format!(
                         "{} left of {} founders, {:.0}%",
                         s.population,
@@ -524,7 +552,7 @@ impl Telemetry {
                     kind_id: 4,
                     subtype_id: 0,
                     species_id: Some(s.id),
-                    title: format!("{name} is back from the edge"),
+                    title: format!("{name} claws its way back"),
                     evidence: format!(
                         "{} alive, {:.0}% of its founding population",
                         s.population,
@@ -572,7 +600,7 @@ impl Telemetry {
             kind_id: 5,
             subtype_id: 0,
             species_id: Some(top.id),
-            title: format!("{} is ahead", self.name(top.id)),
+            title: format!("{} takes the lead", self.name(top.id)),
             evidence: format!(
                 "{} {} against {}, held for {DWELL} epochs",
                 top.name,
@@ -634,7 +662,7 @@ impl Telemetry {
                 kind_id: 6,
                 subtype_id: FEATURES.iter().position(|f| *f == feature).unwrap_or(0) as u16,
                 species_id: detector.species,
-                title: format!("{subject} {} {}", feature.phrase(rising), feature.label()),
+                title: format!("{subject} {}", feature.headline(rising)),
                 evidence: format!(
                     "{} {:+.0}% against its running baseline, {:.3} -> {:.3}",
                     feature.label(),
