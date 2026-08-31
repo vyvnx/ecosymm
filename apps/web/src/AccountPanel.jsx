@@ -7,9 +7,11 @@ import { formatCoins } from './game/coins.js'
  *
  * it is one of only two things on the page that take pointer events. there is
  * no dashboard behind it: sign in, sign out, and what you are holding.
+ *
+ * whether it is open is App's call, not this component's - one state machine
+ * owns every panel, so this one cannot open itself over a sheet or a result.
  */
-export default function AccountPanel({ account, onChanged }) {
-  const [open, setOpen] = useState(false)
+export default function AccountPanel({ account, open, onToggle, onChanged }) {
   const [registering, setRegistering] = useState(false)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -25,7 +27,6 @@ export default function AccountPanel({ account, onChanged }) {
         ? api.register(username, password)
         : api.login(username, password))
       setPassword('')
-      setOpen(false)
       onChanged(next)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'something went wrong')
@@ -38,7 +39,6 @@ export default function AccountPanel({ account, onChanged }) {
     setPending(true)
     try {
       await api.logout()
-      setOpen(false)
       onChanged(null)
     } finally {
       setPending(false)
@@ -49,9 +49,9 @@ export default function AccountPanel({ account, onChanged }) {
     <div className="pointer-events-auto absolute top-4 right-4 flex max-w-[calc(100vw-2rem)] flex-col items-end text-xs">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={onToggle}
         aria-expanded={open}
-        className="min-h-9 rounded border border-neutral-800/80 bg-neutral-950/70 px-3 py-1.5 tabular-nums text-neutral-300 backdrop-blur hover:border-neutral-700 hover:text-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500"
+        className="min-h-11 rounded border border-neutral-800/80 sm:min-h-9 bg-neutral-950/70 px-3 py-1.5 tabular-nums text-neutral-300 backdrop-blur hover:border-neutral-700 hover:text-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500"
       >
         {account ? (
           <>

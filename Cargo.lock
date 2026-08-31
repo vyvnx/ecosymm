@@ -427,6 +427,7 @@ dependencies = [
  "axum",
  "ecosym-core",
  "ecosym-game",
+ "ecosym-genetics",
  "ecosym-replay",
  "ecosym-simulation",
  "getrandom 0.2.17",

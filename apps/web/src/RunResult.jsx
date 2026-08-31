@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { speciesCss } from './render/WorldRenderer.js'
 import { formatCoins, payoutLine, settlementLine } from './game/coins.js'
+import { evolutionSummary } from './telemetry/species.js'
 
 /**
  * the payout phase: the only thing on screen between a run ending and the
@@ -54,6 +55,26 @@ export default function RunResult({ done, market, bet, seedHex, status }) {
                 {change(s)}
               </span>
             </div>
+          ))}
+        </div>
+
+        {/* what the run did to the bodies, not just the head count. the two
+            traits that moved furthest, so a reader sees the selection rather
+            than only its score line. */}
+        <div className="mt-2 space-y-0.5 text-neutral-600">
+          {done.outcome.species.map((s, i) => (
+            <p key={s.id} className="flex items-baseline gap-2 tabular-nums">
+              <span
+                aria-hidden
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ background: speciesCss(i) }}
+              />
+              <span className="truncate">
+                {evolutionSummary(s)
+                  .map((t) => `${t.label} ${t.from.toFixed(2)} \u2192 ${t.to.toFixed(2)}`)
+                  .join('  ·  ')}
+              </span>
+            </p>
           ))}
         </div>
 

@@ -13,19 +13,114 @@ workload is worth moving to a device at all.
 - host: AMD Ryzen 7 5800XT (8 cores), Linux 6.18 (WSL2), rustc 1.98.0
 - build: `cargo run --release` (`lto = "thin"`, `codegen-units = 1`)
 - engine: `cpu`, single-threaded
-- recorded: 2026-08-28, with evolved neural behaviour, impassable sea and
-  resource dispersal
+- recorded: 2026-08-29, with evolved neural behaviour, impassable sea, resource
+  dispersal, wander charged as movement effort, the CSR cell index, and
+  directional perception
 
 Default scenario - two species, 500 founders each, 500 epochs of 20 ticks
 (10,000 ticks total) on a 128x128 world:
 
-| metric | value |
-| --- | --- |
-| wall clock | 24.5 s |
-| peak total population | 5,100 |
-| final population | 4,658 (A 2,220 / B 2,438) |
-| throughput | ~20 epochs/s, ~2.0M organism-ticks/s |
-| replay digest | `4d8a1fd0975a2c99` |
+| metric | directional perception | free gradient actuator |
+| --- | --- | --- |
+| wall clock | 67.7 s | 29.1 s |
+| peak total population | 8,807 | 4,745 |
+| mean population | 8,395 | 4,519 |
+| organism-ticks | 84.0 M | 45.2 M |
+| throughput | 7.4 epochs/s, **1.24 M organism-ticks/s** | 17.2 epochs/s, 1.55 M/s |
+| replay digest | `cef4dae3963e179e` | `de08609476524f6c` |
+
+Both columns are seed 1234 measured on this host; the right-hand one is
+`310eba7`, checked out in a worktree so the two builds are the same compiler on
+the same machine. Mean population is the mean of the 21 sampled epoch rows, so
+organism-ticks are an estimate, not a count.
+
+**The tick got 1.25x more expensive and the world got 1.9x more crowded.** Wall
+clock is 2.3x because those multiply. Only the first number is a cost of this
+change: the second is `experiments/2026-08-29-perception-costs-productivity`
+doubling primary productivity so anything survives at all, and a world holding
+twice as many organisms taking twice as long is the ecology, not the code.
+
+Where the 1.25x went:
+
+| | before | after |
+| --- | ---: | ---: |
+| stencil probes per organism-tick | 4 | 8 |
+| cell-index lookups per probe | 1 | 2 (kin and rivals) |
+| policy multiply-accumulates | 104 (`8 -> 8 -> 5`) | 128 (`12 -> 8 -> 4`) |
+| `tanh` calls | 13 | 12 |
+
+Doubling the stencil is what it cost, and it is what bought a *direction*: four
+probes can rank tiles, eight can say which way. The network is the cheaper half
+of the change and one `tanh` lighter than before.
+
+The `--population-per-species` sweep now says something it did not:
+
+| founders per species | seconds (200 epochs) | peak population |
+| ---: | ---: | ---: |
+| 125 | 41.6 s | 9,565 |
+| 500 | 52.5 s | 9,473 |
+| 2,000 | 65.1 s | 9,488 |
+
+Peak population is flat across a 16x range of founders, where before it tracked
+them (2,496 / 4,952 / 5,128). The world, not the founding stock, is what decides
+how many organisms it holds - which is what carrying capacity binding looks like,
+and it was not binding before.
+
+### Where it ended up
+
+The whole observatory arc, seed 1234, 500 epochs of 20 ticks on 128x128 - the
+free food-gradient actuator, then directional perception, then lifetime memory,
+then local mating, then softsign:
+
+| | actuator | perception | recurrence | local mating | softsign |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| wall clock | 29.1 s | 67.7 s | 111.1 s | 118.5 s | **94.9 s** |
+| mean population | 4,519 | 8,395 | 8,638 | 9,375 | 9,325 |
+| organism-ticks | 45.2 M | 84.0 M | 86.4 M | 93.8 M | 93.2 M |
+| throughput | 1.55 M/s | 1.24 M/s | 0.78 M/s | 0.79 M/s | **0.98 M/s** |
+| digest | `de08609476524f6c` | `cef4dae3963e179e` | `4aa51da60fc894eb` | `c0fd53a79b897029` | `063119e7a7c2029f` |
+
+The tick is 1.6x more expensive per organism than it was and the world holds
+2.1x as many of them. Softsign gave back a third of what recurrence cost.
+
+The `--population-per-species` sweep now says something it did not:
+
+| founders per species | seconds (200 epochs) | peak population |
+| ---: | ---: | ---: |
+| 125 | 34.2 s | 10,373 |
+| 500 | 35.5 s | 10,434 |
+| 2,000 | 34.0 s | 10,061 |
+
+Peak population is flat across a 16x range of founders, and so is wall clock,
+where before both tracked the founding stock (2,496 / 4,952 / 5,128). The world
+decides how many organisms it holds. That is carrying capacity binding, and it
+was not binding before.
+
+### What the recurrence costs
+
+`12 -> 8 recurrent -> 4` against the feed-forward `12 -> 8 -> 4` at the same
+productivity, seed 1234, 500 epochs:
+
+| metric | recurrent | feed-forward |
+| --- | ---: | ---: |
+| wall clock | 111.1 s | 67.7 s |
+| final population | 8,638 | 8,807 |
+| multiply-accumulates per organism-tick | 192 | 128 |
+| `tanh` calls | 12 | 12 |
+| genome | 204 numbers | 140 |
+| organism state | +8 `f32` | - |
+| replay digest | `4aa51da60fc894eb` | `cef4dae3963e179e` |
+
+1.64x for 1.5x the arithmetic at the same population; the rest is the recurrent
+block being a second strided read per neuron. Behaviour is
+`experiments/2026-08-29-lifetime-memory-buys-persistence`.
+
+The softsign gate in `docs/adr/0009` opened on the strength of that: `tanh` was
+half the wall clock of a run whose policy had just got 1.5x bigger. It is
+adopted, at 1.25 - 1.42x over six seeds and the twins, in
+`experiments/2026-08-29-softsign-pays-for-the-recurrence` - which is why the
+row above reads 94.9 s and not 118.5 s. The `tanh` calls line here is what the
+recurrence cost *before* that swap.
 
 ### What the policy costs
 
@@ -48,13 +143,33 @@ The softsign swap is one line in `crates/genetics/src/neural_genome.rs` and is
 documented there. It is not taken because 21 s is fast enough and `tanh` is the
 shape a reader expects; re-record this table if that changes.
 
-Founder count vs wall clock, 200 epochs:
+Founder count vs wall clock, 200 epochs, with the `Occupancy` tile counts and
+the CSR cell index that replaced them measured back to back on the same host:
 
-| founders per species | seconds | peak total population |
+| founders per species | occupancy | cell index | peak total population |
+| --- | --- | --- | --- |
+| 125 | 8.10 s | 8.15 s | 2,495 |
+| 500 | 8.31 s | 8.47 s | 5,010 |
+| 2000 | 8.59 s | 8.98 s | 5,138 |
+
+The index costs 2-5% and buys contiguous per-cell membership. Its own cost,
+measured directly at populations the default world cannot sustain
+(`cargo test --release -p ecosym-ecology -- --ignored --nocapture`):
+
+| organisms | spread over the map | all on one tile |
 | --- | --- | --- |
-| 125 | 7.72 | 2,496 |
-| 500 | 8.66 | 5,042 |
-| 2000 | 9.71 | 5,137 |
+| 5,000 | 51 us/rebuild | 78 us/rebuild |
+| 10,000 | 114 us/rebuild | 106 us/rebuild |
+
+Linear in population and flat against clustering, which is the property a
+counting sort is chosen for: the clustered worst case is a longer run of writes
+into one bucket, not a scan. A tick at 5,000 organisms costs about 2.1 ms, so
+the index is ~2.4% of it.
+
+**Carrying capacity, not the ceiling, is why 10,000 organisms do not appear in
+the CLI rows.** The 128x128 world saturates near 5,100 whatever it is founded
+with, so the 10,000-organism target has to be measured on the index directly
+until a world-size option exists.
 
 At 500 and 2,000 founders the population saturates near 5,000: carrying capacity
 binds and the extra founders buy nothing but a slower start. The 125-founder row

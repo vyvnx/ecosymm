@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 ecosym-core.workspace = true
+ecosym-genetics.workspace = true
 ecosym-simulation.workspace = true
 ecosym-replay.workspace = true
 ecosym-game.workspace = true

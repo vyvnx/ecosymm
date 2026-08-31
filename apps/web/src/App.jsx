@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import AccountPanel from "./AccountPanel.jsx";
 import BetPanel from "./BetPanel.jsx";
 import BettingStage from "./BettingStage.jsx";
+import LiveLog from "./LiveLog.jsx";
 import RunResult from "./RunResult.jsx";
+import SpectatorDock from "./SpectatorDock.jsx";
 import WorldView, { createController } from "./WorldView.jsx";
 import { api } from "./game/api.js";
 import { fromAnotherRun, initialMarket, reduceMarket } from "./game/market.js";
 import { decode } from "./render/protocol.js";
 import { speciesCss } from "./render/WorldRenderer.js";
+import { initialFeed, markRead, reduceFeed, resetFeed, unread } from "./telemetry/events.js";
 
 const PROTOCOL_VERSION = 1;
 
@@ -29,6 +32,11 @@ export default function App() {
   const [account, setAccount] = useState(null);
   const [bet, setBet] = useState(null);
   const [form, setForm] = useState([]);
+  const [feed, setFeed] = useState(initialFeed);
+  // the one place that decides what may be on screen at once. individual
+  // panels ask for a slot; none of them decides it may have one.
+  const [panel, setPanel] = useState(null);
+  const [events, setEvents] = useState(true);
   // bumped whenever the socket has to start again: a bootstrap that did not
   // add up, or signing in and out, which is what re-authenticates it
   const [socketKey, setSocketKey] = useState(0);
@@ -65,6 +73,9 @@ export default function App() {
     }
   }, []);
 
+  // the viewer reached the bottom of the feed, so what is held is now read
+  const seen = useCallback(() => setFeed(markRead), []);
+
   const refreshMarket = useCallback(async () => {
     try {
       const market = await api.market();
@@ -87,6 +98,12 @@ export default function App() {
   useEffect(() => {
     if (marketId !== undefined) refreshMarket();
   }, [marketId, phase, account?.id, refreshMarket]);
+
+  // a panel opened while the run was live has no business surviving into the
+  // next phase, so the machine starts closed every time the phase moves
+  useEffect(() => {
+    setPanel(null);
+  }, [phase]);
 
   // the record the betting phase reads back. only a market finishing changes
   // it, so a new market id is the whole of when to ask for it again.
@@ -156,6 +173,7 @@ export default function App() {
           report.current = null;
           lastSnapshot.current = null;
           runId.current = null;
+          setFeed(initialFeed);
           controller.current.reset();
           setDone(null);
           setFailure(null);
@@ -190,11 +208,13 @@ export default function App() {
           report.current = null;
           lastSnapshot.current = null;
           runId.current = msg.run_id ?? null;
+          setFeed(resetFeed(msg.run_id ?? null));
           controller.current.reset();
           setDone(null);
           setStart(msg);
         }
         if (msg.type === "epoch") report.current = msg.report;
+        if (msg.type === "telemetry") setFeed((f) => reduceFeed(f, msg));
         if (msg.type === "error") throw new Error(msg.message);
         if (msg.type === "done") setDone(msg);
       }
@@ -237,13 +257,50 @@ export default function App() {
   const finished =
     done && (game.market?.phase === "settled" || game.market?.phase === "void");
 
+  // the overlay state machine. one expression decides everything that may be
+  // on screen at once, so no panel has to guess whether it is allowed to open:
+  // a finished run outranks every panel, and an open market outranks
+  // telemetry, because the run behind the dim is not the one being bet on.
+  const betting = phase === "open";
+  const overlay = finished ? "result" : betting ? null : panel;
+  const sheet = overlay === "events" ? overlay : null;
+  const watching = !betting && !finished;
+
   return (
     <div className="fixed inset-0 bg-neutral-950 font-mono text-neutral-200">
       <WorldView controller={controller.current} />
 
+      {/* one compact strip on a phone: the epoch and who is alive, and nothing
+          else. the full readout is a desktop luxury - on a 320px screen every
+          line of it is a line the world does not get. */}
+      <div className="pointer-events-none absolute top-4 right-[7.5rem] left-4 flex items-baseline gap-2 overflow-hidden rounded border border-neutral-800/80 bg-neutral-950/70 px-2 py-1 text-xs whitespace-nowrap backdrop-blur sm:hidden">
+        <span className="font-bold text-emerald-400">ecosym</span>
+        {last ? (
+          <>
+            <span className="tabular-nums text-neutral-400">e{last.epoch.toLocaleString()}</span>
+            {cards.map((s, i) => (
+              <span key={s.id} className="flex items-baseline gap-1">
+                <span
+                  aria-hidden
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ background: speciesCss(i) }}
+                />
+                <span className="sr-only">{s.name} </span>
+                <span className="tabular-nums text-neutral-200">
+                  {(s.population ?? 0).toLocaleString()}
+                </span>
+              </span>
+            ))}
+          </>
+        ) : (
+          <span className="truncate text-neutral-400">{status}</span>
+        )}
+        {failure && <span className="truncate text-amber-400">{failure}</span>}
+      </div>
+
       {/* the readout is not interactive, so nothing in it may sit between the
           viewer and the world */}
-      <div className="pointer-events-none absolute top-4 left-4 max-w-[min(14rem,calc(100vw-9rem))] rounded border border-neutral-800/80 bg-neutral-950/70 p-3 text-xs backdrop-blur sm:top-auto sm:bottom-4 sm:max-w-[min(22rem,calc(100vw-2rem))]">
+      <div className="pointer-events-none absolute top-4 left-4 hidden max-w-[min(14rem,calc(100vw-9rem))] rounded border border-neutral-800/80 bg-neutral-950/70 p-3 text-xs backdrop-blur sm:top-auto sm:bottom-4 sm:block sm:max-w-[min(22rem,calc(100vw-2rem))]">
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-bold text-emerald-400">ecosym</span>
           <span className="text-neutral-400">{status}</span>
@@ -303,11 +360,40 @@ export default function App() {
           ended, so it goes dark and the record takes the screen instead. */}
       <BettingStage market={game.market} form={form} />
 
+      {/* the desktop rail. it is a panel over the world rather than a column
+          beside it: the canvas is full-bleed and letterboxes the map itself,
+          so a layout column would take width from the world for nothing. */}
+      {watching && (
+        <>
+          <Rail
+            title="live"
+            badge={unread(feed).length}
+            open={events}
+            onToggle={() => setEvents((open) => !open)}
+          >
+            <LiveLog feed={feed} onSeen={seen} label="run events" />
+          </Rail>
+
+          <SpectatorDock
+            feed={feed}
+            sheet={sheet}
+            onOpen={setPanel}
+            onClose={() => setPanel(null)}
+            onSeen={seen}
+          />
+        </>
+      )}
+
       <AccountPanel
         account={account}
+        open={overlay === "account"}
+        onToggle={() =>
+          setPanel((p) => (p === "account" ? null : "account"))
+        }
         onChanged={(next) => {
           setAccount(next);
           setBet(null);
+          setPanel(null);
           // the socket authenticates once, at connect: reopening it is what
           // makes it listen for the right account
           setSocketKey((k) => k + 1);
@@ -321,6 +407,7 @@ export default function App() {
         synced={game.synced}
         connected={connected}
         offset={game.offset}
+        expanded={betting}
         onBet={placeBet}
       />
 
@@ -334,6 +421,41 @@ export default function App() {
           seedHex={start?.seed_hex}
           status={status}
         />
+      )}
+    </div>
+  );
+}
+
+function Rail({ title, open, onToggle, badge = 0, children }) {
+  // anchored top and bottom rather than capped by height: a short landscape
+  // window is exactly where a max-height rail grows down into the readout
+  const place = "right-4 top-16 bottom-[6rem] w-60 lg:w-72";
+  return (
+    <div
+      className={`pointer-events-auto absolute ${open ? place : `${place} bottom-auto`} hidden flex-col rounded border border-neutral-800/80 bg-neutral-950/70 p-2 text-xs backdrop-blur sm:flex`}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex min-h-6 items-baseline gap-2 text-neutral-500 hover:text-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500"
+      >
+        <span>{title}</span>
+        {badge > 0 && !open && (
+          <span className="rounded-full bg-emerald-950/60 px-1.5 tabular-nums text-emerald-300">
+            {badge}
+          </span>
+        )}
+        <span aria-hidden className="ml-auto text-neutral-700">
+          {open ? "\u2013" : "+"}
+        </span>
+      </button>
+      {/* the child owns the scrolling. a second scroller here is what put two
+          bars on the feed. */}
+      {open && (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2">
+          {children}
+        </div>
       )}
     </div>
   );

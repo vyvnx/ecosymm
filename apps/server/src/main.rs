@@ -11,6 +11,7 @@ mod coordinator;
 mod hub;
 mod routes;
 mod store;
+mod telemetry;
 mod wire;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};

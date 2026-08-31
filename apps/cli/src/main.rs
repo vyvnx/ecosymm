@@ -147,10 +147,12 @@ fn gene_changes(from: &Genes, to: &Genes) -> String {
 fn behavior_changes(from: &BehaviorStats, to: &BehaviorStats) -> String {
     [
         ("movement/tick", from.movement, to.movement),
-        ("food seeking", from.food_seeking, to.food_seeking),
+        ("resource tracking", from.resource_tracking, to.resource_tracking),
         ("reproduction intent", from.reproduction, to.reproduction),
         ("rest tendency", from.resting, to.resting),
         ("competitor exposure", from.competitor_exposure, to.competitor_exposure),
+        ("occupied temperature", from.occupied_temperature, to.occupied_temperature),
+        ("climate fit", from.climate_fit, to.climate_fit),
     ]
     .iter()
     .map(|(name, a, b)| format!("{name} {a:.3} -> {b:.3}"))
@@ -219,22 +221,28 @@ mod tests {
     fn behavior_changes_show_both_ends() {
         let from = BehaviorStats {
             movement: 0.81,
-            food_seeking: 0.63,
+            resource_tracking: -0.63,
             reproduction: 0.52,
             resting: 0.14,
             competitor_exposure: 0.2,
+            occupied_temperature: 0.44,
+            climate_fit: 0.7,
         };
         let to = BehaviorStats {
             movement: 0.52,
-            food_seeking: 0.82,
+            resource_tracking: 0.82,
             reproduction: 0.39,
             resting: 0.61,
             competitor_exposure: 0.3,
+            occupied_temperature: 0.21,
+            climate_fit: 0.9,
         };
         let line = behavior_changes(&from, &to);
         assert!(line.contains("movement/tick 0.810 -> 0.520"), "{line}");
         assert!(line.contains("rest tendency 0.140 -> 0.610"), "{line}");
-        assert!(line.contains("food seeking 0.630 -> 0.820"), "{line}");
+        assert!(line.contains("resource tracking -0.630 -> 0.820"), "{line}");
+        assert!(line.contains("occupied temperature 0.440 -> 0.210"), "{line}");
+        assert!(line.contains("climate fit 0.700 -> 0.900"), "{line}");
     }
 
     #[test]

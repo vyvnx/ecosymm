@@ -23,9 +23,15 @@ impl Terrain {
             for x in 0..width {
                 let e = fbm(seed, x as f32, y as f32, 0.045);
                 let w = fbm(seed ^ 0xA5A5, x as f32, y as f32, 0.025);
-                // land above sea level is fertile where it is wet; ocean is barren
+                // land above sea level is fertile where it is wet; ocean is barren.
+                //
+                // primary productivity is twice what it was while foraging was a
+                // free actuator: a world tuned so that forced food-followers just
+                // fit its carrying capacity is barren once foraging has to be
+                // evolved, because the founder generation cannot find the food it
+                // is standing next to. see experiments/2026-08-29-perception-costs-productivity.
                 let f =
-                    if e < SEA_LEVEL { 0.05 } else { (0.2 + 1.6 * w * (e - SEA_LEVEL)).min(1.0) };
+                    if e < SEA_LEVEL { 0.05 } else { (0.4 + 3.2 * w * (e - SEA_LEVEL)).min(2.0) };
                 fertility.push(f);
                 elevation.push(e);
                 wetness.push(w);
