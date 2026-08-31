@@ -20,12 +20,12 @@ pub fn default_blueprints() -> Vec<SpeciesBlueprint> {
         SpeciesBlueprint {
             name: "Species A".into(),
             genes: Genes { speed: 1.3, size: 1.0, metabolism: 1.2, heat_pref: 0.62 },
-            gene_spread: 0.12,
+            gene_spread: Genes { speed: 0.12, size: 0.12, metabolism: 0.12, heat_pref: 0.12 * 0.5 },
         },
         SpeciesBlueprint {
             name: "Species B".into(),
             genes: Genes { speed: 0.7, size: 1.0, metabolism: 0.8, heat_pref: 0.38 },
-            gene_spread: 0.12,
+            gene_spread: Genes { speed: 0.12, size: 0.12, metabolism: 0.12, heat_pref: 0.12 * 0.5 },
         },
     ]
 }

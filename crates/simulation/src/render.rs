@@ -175,7 +175,7 @@ mod tests {
             .map(|i| SpeciesBlueprint {
                 name: format!("S{i}"),
                 genes: Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 },
-                gene_spread: 0.1,
+                gene_spread: Genes { speed: 0.1, size: 0.1, metabolism: 0.1, heat_pref: 0.1 * 0.5 },
             })
             .collect()
     }

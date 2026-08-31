@@ -133,8 +133,11 @@ mod tests {
 
     /// a species holding organisms at the given positions, in that order
     fn species(id: u32, world: &World, at: &[(f32, f32)]) -> Species {
-        let blueprint =
-            SpeciesBlueprint { name: format!("S{id}"), genes: genes(), gene_spread: 0.0 };
+        let blueprint = SpeciesBlueprint {
+            name: format!("S{id}"),
+            genes: genes(),
+            gene_spread: Genes::default(),
+        };
         let mut s = Species::found(
             SpeciesId::new(id),
             &blueprint,

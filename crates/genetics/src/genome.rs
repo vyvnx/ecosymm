@@ -77,15 +77,31 @@ impl Genes {
     /// small bounded variation around a founder profile, so 500 founders of one
     /// species are siblings rather than clones. uniform, not gaussian: the
     /// spread must be a hard bound, not a tail.
-    pub fn varied(&self, spread: f32, rng: &mut Rng) -> Genes {
+    ///
+    /// the half-width is per axis because the four traits do not share a range.
+    /// one scalar cannot mean the same thing on `speed` and on `heat_pref`; a
+    /// scenario that wants an even envelope asks `Genes::spread` for one.
+    pub fn varied(&self, spread: Genes, rng: &mut Rng) -> Genes {
         Genes {
-            speed: self.speed + rng.between(-spread, spread),
-            size: self.size + rng.between(-spread, spread),
-            metabolism: self.metabolism + rng.between(-spread, spread),
-            // heat_pref lives on a 0..1 scale, so it drifts at half the width
-            heat_pref: self.heat_pref + rng.between(-spread * 0.5, spread * 0.5),
+            speed: self.speed + rng.between(-spread.speed, spread.speed),
+            size: self.size + rng.between(-spread.size, spread.size),
+            metabolism: self.metabolism + rng.between(-spread.metabolism, spread.metabolism),
+            heat_pref: self.heat_pref + rng.between(-spread.heat_pref, spread.heat_pref),
         }
         .clamped()
+    }
+
+    /// half-widths that are the same fraction of every trait's full range. a
+    /// scenario built from these gives no axis a wider founder envelope than
+    /// another, which is what makes two founding profiles procedurally
+    /// symmetric rather than merely differently centred.
+    pub fn spread(fraction: f32) -> Genes {
+        Genes {
+            speed: fraction * (SPEED_BOUNDS.1 - SPEED_BOUNDS.0),
+            size: fraction * (SIZE_BOUNDS.1 - SIZE_BOUNDS.0),
+            metabolism: fraction * (METABOLISM_BOUNDS.1 - METABOLISM_BOUNDS.0),
+            heat_pref: fraction * (HEAT_PREF_BOUNDS.1 - HEAT_PREF_BOUNDS.0),
+        }
     }
 }
 
@@ -188,12 +204,37 @@ mod tests {
     }
 
     #[test]
-    fn founder_variation_is_bounded_and_not_a_clone() {
-        let mut rng = Rng::new(11);
+    fn founder_variation_is_bounded_per_axis_and_not_a_clone() {
+        let mut rng = Rng::new(7);
         let base = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
-        let varied: Vec<Genes> = (0..200).map(|_| base.varied(0.15, &mut rng)).collect();
+        let spread = Genes { speed: 0.15, size: 0.2, metabolism: 0.05, heat_pref: 0.3 };
+        let varied: Vec<Genes> = (0..200).map(|_| base.varied(spread, &mut rng)).collect();
         assert!(varied.iter().all(|g| g.in_bounds()));
         assert!(varied.iter().all(|g| (g.speed - base.speed).abs() <= 0.15));
+        assert!(varied.iter().all(|g| (g.size - base.size).abs() <= 0.2));
+        assert!(varied.iter().all(|g| (g.metabolism - base.metabolism).abs() <= 0.05));
+        assert!(varied.iter().all(|g| (g.heat_pref - base.heat_pref).abs() <= 0.3));
         assert!(varied.iter().any(|g| *g != base), "every founder is a clone");
+    }
+
+    /// the normalised envelope: every axis varies by the same fraction of its
+    /// own range, so no trait gets a wider founder spread than another
+    #[test]
+    fn a_normalised_spread_is_the_same_fraction_of_every_bound() {
+        let s = Genes::spread(0.05);
+        assert_eq!(s.speed, 0.05 * (SPEED_BOUNDS.1 - SPEED_BOUNDS.0));
+        assert_eq!(s.size, 0.05 * (SIZE_BOUNDS.1 - SIZE_BOUNDS.0));
+        assert_eq!(s.metabolism, 0.05 * (METABOLISM_BOUNDS.1 - METABOLISM_BOUNDS.0));
+        assert_eq!(s.heat_pref, 0.05 * (HEAT_PREF_BOUNDS.1 - HEAT_PREF_BOUNDS.0));
+
+        let mut rng = Rng::new(11);
+        let base = Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 };
+        let normalised = |a: f32, b: f32, (lo, hi): (f32, f32)| (a - b).abs() / (hi - lo);
+        for g in (0..500).map(|_| base.varied(s, &mut rng)) {
+            assert!(normalised(g.speed, base.speed, SPEED_BOUNDS) <= 0.05 + 1e-6);
+            assert!(normalised(g.size, base.size, SIZE_BOUNDS) <= 0.05 + 1e-6);
+            assert!(normalised(g.metabolism, base.metabolism, METABOLISM_BOUNDS) <= 0.05 + 1e-6);
+            assert!(normalised(g.heat_pref, base.heat_pref, HEAT_PREF_BOUNDS) <= 0.05 + 1e-6);
+        }
     }
 }

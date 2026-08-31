@@ -33,8 +33,8 @@ impl SpeciesId {
 pub struct SpeciesBlueprint {
     pub name: String,
     pub genes: Genes,
-    /// half-width of the uniform variation applied to each founder
-    pub gene_spread: f32,
+    /// per-axis half-width of the uniform variation applied to each founder
+    pub gene_spread: Genes,
 }
 
 /// the two independent random streams a founder population is drawn from.
@@ -134,7 +134,7 @@ mod tests {
         SpeciesBlueprint {
             name: "Test".into(),
             genes: Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 },
-            gene_spread: 0.1,
+            gene_spread: Genes { speed: 0.1, size: 0.1, metabolism: 0.1, heat_pref: 0.1 * 0.5 },
         }
     }
 
