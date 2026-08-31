@@ -587,5 +587,6 @@ mod tests {
         let first = |i: usize| *sim.state.species[i].population().organisms()[0].brain();
         assert_ne!(first(0), first(1));
         assert_ne!(first(1), first(2));
+        assert_ne!(first(0), first(2));
     }
 }
