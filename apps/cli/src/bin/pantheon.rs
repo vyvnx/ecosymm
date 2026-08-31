@@ -49,10 +49,10 @@ struct Row {
     /// total population of the run at `CENSUS_EPOCH`, for the dominance check
     census_total: usize,
     digest: String,
-    seconds: f64,
 }
 
 fn main() {
+    let started = Instant::now();
     let args = Args::parse();
     let solo = match args.mode.as_str() {
         "solo" => true,
@@ -85,10 +85,10 @@ fn main() {
     });
     rows.sort_by(|a, b| (a.seed, &a.house).cmp(&(b.seed, &b.house)));
 
-    println!("seed,house,initial,at_census,final,births,census_total,digest,seconds");
+    println!("seed,house,initial,at_census,final,births,census_total,digest");
     for r in &rows {
         println!(
-            "{},{},{},{},{},{},{},{},{:.2}",
+            "{},{},{},{},{},{},{},{}",
             r.seed,
             r.house,
             r.initial,
@@ -96,11 +96,11 @@ fn main() {
             r.final_pop,
             r.births,
             r.census_total,
-            r.digest,
-            r.seconds
+            r.digest
         );
     }
     summarise(&rows, solo, args.epochs);
+    eprintln!("swept {} seeds in {:.1}s", seeds.len(), started.elapsed().as_secs_f64());
 }
 
 /// one seed. `solo` gives each house its own world; otherwise all three share
@@ -121,7 +121,6 @@ fn sample(seed: u64, solo: bool, args: &Args) -> Vec<Row> {
 }
 
 fn run_one(cfg: &SimConfig, scenario: &[SpeciesBlueprint]) -> Vec<Row> {
-    let started = Instant::now();
     let mut sim = Simulation::cpu_with(cfg.clone(), scenario);
     let mut rec = Recorder::new(cfg.clone(), sim.engine_id());
     let mut at_census = vec![0usize; scenario.len()];
@@ -138,7 +137,6 @@ fn run_one(cfg: &SimConfig, scenario: &[SpeciesBlueprint]) -> Vec<Row> {
         }
     }
 
-    let seconds = started.elapsed().as_secs_f64();
     let digest = rec.digest_hex();
     let census_total: usize = at_census.iter().sum();
     let outcome = sim.outcome();
@@ -155,7 +153,6 @@ fn run_one(cfg: &SimConfig, scenario: &[SpeciesBlueprint]) -> Vec<Row> {
             births: s.births,
             census_total,
             digest: digest.clone(),
-            seconds,
         })
         .collect()
 }
