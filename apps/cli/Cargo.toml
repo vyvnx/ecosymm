@@ -3,6 +3,7 @@ name = "ecosym-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+default-run = "ecosym"
 
 [[bin]]
 name = "ecosym"

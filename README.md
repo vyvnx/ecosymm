@@ -174,7 +174,7 @@ only record of every account and every coin.
 
 | path | what |
 | --- | --- |
-| `apps/cli` | the `ecosym` binary (workspace `default-members`, so bare `cargo run` hits it) |
+| `apps/cli` | the `ecosym` binary (workspace `default-members` plus the package's `default-run`, so bare `cargo run` hits it) |
 | `apps/server` | axum HTTP + WebSocket; a blocking producer streams epoch reports as JSON and sampled render state as binary |
 | `apps/web` | React + Tailwind dashboard around a WebGL2 world view (`src/render/`) |
 | `crates/core` | rng, `SimConfig`, hashing, named seed derivation |
