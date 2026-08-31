@@ -5,7 +5,8 @@ use ecosym_core::SimConfig;
 use ecosym_genetics::Genes;
 use ecosym_replay::Recorder;
 use ecosym_simulation::{
-    twin_blueprints, BehaviorStats, RunOutcome, Simulation, SpeciesResult, Winner,
+    pantheon_blueprints, twin_blueprints, BehaviorStats, RunOutcome, Simulation, SpeciesResult,
+    Winner,
 };
 use std::time::Instant;
 
@@ -20,10 +21,13 @@ struct Args {
     /// batches of ticks to run. simulation time, not biological generations.
     #[arg(long, default_value_t = SimConfig::default().epochs)]
     epochs: usize,
-    /// run the controlled experiment instead: two species with identical
-    /// bodies, so only their evolved policies can differ
-    #[arg(long)]
-    twins: bool,
+    /// run the controlled experiment instead: N species with identical bodies,
+    /// so only their evolved policies can differ
+    #[arg(long, value_name = "N", num_args = 0..=1, default_missing_value = "2")]
+    twins: Option<usize>,
+    /// run the three pantheon houses instead of the default two species
+    #[arg(long, conflicts_with = "twins")]
+    pantheon: bool,
 }
 
 fn main() {
@@ -35,10 +39,10 @@ fn main() {
         ..Default::default()
     };
 
-    let mut sim = if args.twins {
-        Simulation::cpu_with(cfg.clone(), &twin_blueprints(2))
-    } else {
-        Simulation::cpu(cfg.clone())
+    let mut sim = match (args.twins, args.pantheon) {
+        (Some(n), _) => Simulation::cpu_with(cfg.clone(), &twin_blueprints(n)),
+        (None, true) => Simulation::cpu_with(cfg.clone(), &pantheon_blueprints()),
+        (None, false) => Simulation::cpu(cfg.clone()),
     };
     let mut rec = Recorder::new(cfg.clone(), sim.engine_id());
     let names: Vec<String> = sim.state.species.iter().map(|s| s.name().to_string()).collect();

@@ -23,7 +23,9 @@ so the edges of a grazed region recover before the middle does.
 ```bash
 cargo run --release
 cargo run --release -- --seed 1234 --population-per-species 500 --epochs 500
-cargo run --release -- --twins --epochs 300   # identical bodies, different founder brains
+cargo run --release -- --twins 2 --epochs 300     # identical bodies, different founder brains
+cargo run --release -- --twins 3 --epochs 300     # three identical bodies, three founder brains
+cargo run --release -- --pantheon --epochs 300    # the three-house scenario, not the production one
 ```
 
 Prints the generated world, both founder populations, a per-species epoch table,
