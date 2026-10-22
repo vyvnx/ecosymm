@@ -320,7 +320,7 @@ mod tests {
         let blueprint = SpeciesBlueprint {
             name: "S".into(),
             genes: Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 },
-            gene_spread: 0.0,
+            gene_spread: Genes::default(),
         };
         let mut species = crate::Species::found(
             crate::SpeciesId::new(0),

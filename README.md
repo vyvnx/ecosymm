@@ -23,7 +23,9 @@ so the edges of a grazed region recover before the middle does.
 ```bash
 cargo run --release
 cargo run --release -- --seed 1234 --population-per-species 500 --epochs 500
-cargo run --release -- --twins --epochs 300   # identical bodies, different founder brains
+cargo run --release -- --twins 2 --epochs 300     # identical bodies, different founder brains
+cargo run --release -- --twins 3 --epochs 300     # three identical bodies, three founder brains
+cargo run --release -- --pantheon --epochs 300    # the three-house scenario, not the production one
 ```
 
 Prints the generated world, both founder populations, a per-species epoch table,
@@ -172,7 +174,7 @@ only record of every account and every coin.
 
 | path | what |
 | --- | --- |
-| `apps/cli` | the `ecosym` binary (workspace `default-members`, so bare `cargo run` hits it) |
+| `apps/cli` | the `ecosym` binary (workspace `default-members` plus the package's `default-run`, so bare `cargo run` hits it) |
 | `apps/server` | axum HTTP + WebSocket; a blocking producer streams epoch reports as JSON and sampled render state as binary |
 | `apps/web` | React + Tailwind dashboard around a WebGL2 world view (`src/render/`) |
 | `crates/core` | rng, `SimConfig`, hashing, named seed derivation |

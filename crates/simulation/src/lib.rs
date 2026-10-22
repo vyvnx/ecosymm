@@ -21,6 +21,8 @@ pub use ecosym_ecology::BehaviorStats;
 pub use ecosym_world::HABITABLE_FERTILITY;
 pub use epoch::{EngineError, Epoch, EpochEngine, EpochEvents, SimulationTime, Tick};
 pub use render::{RenderError, RenderOrganism, RenderSnapshot, RenderWorld};
-pub use run::{default_blueprints, twin_blueprints, Simulation};
+pub use run::{
+    default_blueprints, pantheon_blueprints, twin_blueprints, Simulation, PANTHEON_SPREAD,
+};
 pub use state::SimulationState;
 pub use statistics::{EpochReport, RunOutcome, SpeciesResult, SpeciesStats, Winner};

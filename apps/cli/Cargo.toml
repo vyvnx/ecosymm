@@ -3,6 +3,7 @@ name = "ecosym-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+default-run = "ecosym"
 
 [[bin]]
 name = "ecosym"
@@ -12,5 +13,7 @@ path = "src/main.rs"
 ecosym-core.workspace = true
 ecosym-simulation.workspace = true
 ecosym-genetics.workspace = true
+ecosym-ecology.workspace = true
+ecosym-world.workspace = true
 ecosym-replay.workspace = true
 clap = { version = "4", features = ["derive"] }

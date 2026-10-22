@@ -236,4 +236,27 @@ mod tests {
         let b = rec(1, "cpu", &[vec![stats(0, 20)], vec![stats(0, 10)]]);
         assert_ne!(a.digest(), b.digest());
     }
+
+    /// the production two-species scenario, frozen. any change to founder
+    /// draws, ecology rules or reporting moves this, so a commit that moves it
+    /// has to say so in its body with both digests.
+    const PINNED_DIGEST: &str = "6f7d3afd22bbf40f";
+
+    #[test]
+    fn the_default_scenario_still_produces_the_pinned_digest() {
+        let cfg = SimConfig {
+            seed: 1234,
+            population_per_species: 40,
+            epochs: 8,
+            width: 48,
+            height: 48,
+            ticks_per_epoch: 10,
+        };
+        let mut sim = Simulation::cpu(cfg.clone());
+        let mut rec = Recorder::new(cfg.clone(), sim.engine_id());
+        for _ in 0..cfg.epochs {
+            rec.push(sim.advance_epoch().unwrap());
+        }
+        assert_eq!(rec.digest_hex(), PINNED_DIGEST);
+    }
 }

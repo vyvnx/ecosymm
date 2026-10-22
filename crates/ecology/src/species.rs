@@ -33,14 +33,20 @@ impl SpeciesId {
 pub struct SpeciesBlueprint {
     pub name: String,
     pub genes: Genes,
-    /// half-width of the uniform variation applied to each founder
-    pub gene_spread: f32,
+    /// per-axis half-width of the uniform variation applied to each founder
+    pub gene_spread: Genes,
 }
 
 /// the two independent random streams a founder population is drawn from.
 ///
 /// separate on purpose: bodies and brains must not share a stream, or adding
 /// one morphology field silently re-rolls every founder policy after it.
+///
+/// ponytail: placement draws from `morphology`, not a stream of its own. the
+/// pantheon plan asks for three separate streams; splitting placement out now
+/// would move every founder in the production scenario and change its digest
+/// for no present benefit, because nothing has added a morphology field. split
+/// it when one is added, or at the phase-6 activation gate.
 pub struct FounderStreams<'a> {
     pub morphology: &'a mut Rng,
     pub brains: &'a mut Rng,
@@ -134,7 +140,7 @@ mod tests {
         SpeciesBlueprint {
             name: "Test".into(),
             genes: Genes { speed: 1.0, size: 1.0, metabolism: 1.0, heat_pref: 0.5 },
-            gene_spread: 0.1,
+            gene_spread: Genes { speed: 0.1, size: 0.1, metabolism: 0.1, heat_pref: 0.1 * 0.5 },
         }
     }
 

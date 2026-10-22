@@ -263,8 +263,11 @@ mod tests {
     }
 
     fn species(id: u32, at: &[(f32, f32)], world: &World) -> Species {
-        let blueprint =
-            SpeciesBlueprint { name: format!("S{id}"), genes: genes(), gene_spread: 0.0 };
+        let blueprint = SpeciesBlueprint {
+            name: format!("S{id}"),
+            genes: genes(),
+            gene_spread: Genes::default(),
+        };
         let mut s = Species::found(
             SpeciesId::new(id),
             &blueprint,
